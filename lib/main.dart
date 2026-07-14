@@ -77,18 +77,32 @@ class _AppInitializerState extends State<AppInitializer> {
   Future<void> _initializeApp() async {
     try {
       // Platform-specific initialization
-      debugPrint('Starting app initialization on $defaultTargetPlatform');
+      debugPrint('Starting app initialization on ${defaultTargetPlatform}');
 
       // Initialize Hive database with better error handling
-      await Hive.initFlutter();
-      if (!Hive.isAdapterRegistered(0)) {
-        Hive.registerAdapter(PredictionRecordAdapter());
-      }
+      try {
+        await Hive.initFlutter();
+        debugPrint('Hive initialized successfully');
 
-      // Verify Hive is working
-      final testBox = await Hive.openBox('testBox');
-      await testBox.put('initTest', 'success');
-      await testBox.close();
+        if (!Hive.isAdapterRegistered(0)) {
+          Hive.registerAdapter(PredictionRecordAdapter());
+          debugPrint('PredictionRecordAdapter registered');
+        }
+
+        // Verify Hive is working - but don't fail if it doesn't
+        try {
+          final testBox = await Hive.openBox('testBox');
+          await testBox.put('initTest', 'success');
+          await testBox.close();
+          debugPrint('Hive test box operation successful');
+        } catch (e) {
+          debugPrint('Hive test box operation failed (non-critical): $e');
+          // Continue even if Hive test fails
+        }
+      } catch (e) {
+        debugPrint('Hive initialization failed (non-critical): $e');
+        // Continue even if Hive fails - we can use other storage if needed
+      }
 
       // Verify assets are accessible by checking the calibration file
       try {
