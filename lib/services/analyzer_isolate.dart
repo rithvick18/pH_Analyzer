@@ -37,8 +37,9 @@ class AnalyzerService {
     Rect dyeRect,
     Rect bgRect,
   ) async {
-    final String calibrationJson =
-        await rootBundle.loadString('assets/calibration.json');
+    final String calibrationJson = await rootBundle.loadString(
+      'assets/calibration.json',
+    );
 
     final Map<String, dynamic> params = {
       'calibrationJson': calibrationJson,

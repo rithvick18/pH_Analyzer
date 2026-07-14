@@ -51,31 +51,97 @@ class _ResultScreenState extends State<ResultScreen> {
 
   Future<void> _runAnalysis() async {
     try {
+      // Convert Rect objects to serializable maps for isolate communication
+      final dyeRectMap = {
+        'left': widget.dyeRect.left,
+        'top': widget.dyeRect.top,
+        'width': widget.dyeRect.width,
+        'height': widget.dyeRect.height,
+      };
+      final bgRectMap = {
+        'left': widget.bgRect.left,
+        'top': widget.bgRect.top,
+        'width': widget.bgRect.width,
+        'height': widget.bgRect.height,
+      };
+
+      // Create Rect objects from maps for the analyzer service
+      final dyeRectForAnalyzer = Rect.fromLTWH(
+        dyeRectMap['left'] as double,
+        dyeRectMap['top'] as double,
+        dyeRectMap['width'] as double,
+        dyeRectMap['height'] as double,
+      );
+
+      final bgRectForAnalyzer = Rect.fromLTWH(
+        bgRectMap['left'] as double,
+        bgRectMap['top'] as double,
+        bgRectMap['width'] as double,
+        bgRectMap['height'] as double,
+      );
+
       final phFuture = AnalyzerService.predictFromPath(
         widget.imagePath,
-        widget.dyeRect,
-        widget.bgRect,
+        dyeRectForAnalyzer,
+        bgRectForAnalyzer,
       );
 
       final path = widget.imagePath;
-      final dyeR = widget.dyeRect;
-      final bgR = widget.bgRect;
 
       final thumbnailFuture = Isolate.run(() {
         final image = PHAnalyzer.loadAndNormalizeImage(path);
 
+        // Reconstruct Rect objects from the maps
+        final dyeR = Rect.fromLTWH(
+          dyeRectMap['left'] as double,
+          dyeRectMap['top'] as double,
+          dyeRectMap['width'] as double,
+          dyeRectMap['height'] as double,
+        );
+
+        final bgR = Rect.fromLTWH(
+          bgRectMap['left'] as double,
+          bgRectMap['top'] as double,
+          bgRectMap['width'] as double,
+          bgRectMap['height'] as double,
+        );
+
         final int dyeLeft = dyeR.left.floor().clamp(0, image.width - 1);
         final int dyeTop = dyeR.top.floor().clamp(0, image.height - 1);
-        final int dyeW = (dyeR.right.ceil() - dyeLeft).clamp(1, image.width - dyeLeft);
-        final int dyeH = (dyeR.bottom.ceil() - dyeTop).clamp(1, image.height - dyeTop);
+        final int dyeW = (dyeR.right.ceil() - dyeLeft).clamp(
+          1,
+          image.width - dyeLeft,
+        );
+        final int dyeH = (dyeR.bottom.ceil() - dyeTop).clamp(
+          1,
+          image.height - dyeTop,
+        );
 
         final int bgLeft = bgR.left.floor().clamp(0, image.width - 1);
         final int bgTop = bgR.top.floor().clamp(0, image.height - 1);
-        final int bgW = (bgR.right.ceil() - bgLeft).clamp(1, image.width - bgLeft);
-        final int bgH = (bgR.bottom.ceil() - bgTop).clamp(1, image.height - bgTop);
+        final int bgW = (bgR.right.ceil() - bgLeft).clamp(
+          1,
+          image.width - bgLeft,
+        );
+        final int bgH = (bgR.bottom.ceil() - bgTop).clamp(
+          1,
+          image.height - bgTop,
+        );
 
-        final dyePatch = img.copyCrop(image, x: dyeLeft, y: dyeTop, width: dyeW, height: dyeH);
-        final bgPatch = img.copyCrop(image, x: bgLeft, y: bgTop, width: bgW, height: bgH);
+        final dyePatch = img.copyCrop(
+          image,
+          x: dyeLeft,
+          y: dyeTop,
+          width: dyeW,
+          height: dyeH,
+        );
+        final bgPatch = img.copyCrop(
+          image,
+          x: bgLeft,
+          y: bgTop,
+          width: bgW,
+          height: bgH,
+        );
 
         final dyeRgb = RobustColorExtractor.extract(dyePatch);
         final bgRgb = RobustColorExtractor.extract(bgPatch);
@@ -119,7 +185,9 @@ class _ResultScreenState extends State<ResultScreen> {
       await HistoryService.savePrediction(
         phValue: _predictedPh!,
         tempImagePath: widget.imagePath,
-        note: _noteController.text.trim().isEmpty ? null : _noteController.text.trim(),
+        note: _noteController.text.trim().isEmpty
+            ? null
+            : _noteController.text.trim(),
         dyeRect: widget.dyeRect,
         bgRect: widget.bgRect,
       );
@@ -129,14 +197,20 @@ class _ResultScreenState extends State<ResultScreen> {
           _isSaving = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Saved to local analysis history!'), backgroundColor: Colors.green),
+          const SnackBar(
+            content: Text('Saved to local analysis history!'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isSaving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Failed to save: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -150,12 +224,17 @@ class _ResultScreenState extends State<ResultScreen> {
         dyeRect: widget.dyeRect,
         bgRect: widget.bgRect,
         phValue: _predictedPh!,
-        note: _noteController.text.trim().isEmpty ? null : _noteController.text.trim(),
+        note: _noteController.text.trim().isEmpty
+            ? null
+            : _noteController.text.trim(),
       );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error sharing report: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Error sharing report: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -236,19 +315,13 @@ class _ResultScreenState extends State<ResultScreen> {
     final String category = _getPhCategory(ph);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Analysis Results'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('Analysis Results'), centerTitle: true),
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              theme.colorScheme.surface,
-              phColor.withValues(alpha: 0.1),
-            ],
+            colors: [theme.colorScheme.surface, phColor.withValues(alpha: 0.1)],
           ),
         ),
         child: SafeArea(
@@ -315,24 +388,35 @@ class _ResultScreenState extends State<ResultScreen> {
                   children: [
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: (_isSaved || _isSaving || _predictedPh == null)
+                        onPressed:
+                            (_isSaved || _isSaving || _predictedPh == null)
                             ? null
                             : _saveToHistory,
                         icon: _isSaving
                             ? const SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
-                            : Icon(_isSaved ? Icons.check_circle : Icons.bookmark_add),
+                            : Icon(
+                                _isSaved
+                                    ? Icons.check_circle
+                                    : Icons.bookmark_add,
+                              ),
                         label: Text(
                           _isSaved ? 'Saved to History' : 'Save to History',
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
-                          backgroundColor: _isSaved ? Colors.green : theme.colorScheme.primaryContainer,
-                          foregroundColor: _isSaved ? Colors.white : theme.colorScheme.onPrimaryContainer,
+                          backgroundColor: _isSaved
+                              ? Colors.green
+                              : theme.colorScheme.primaryContainer,
+                          foregroundColor: _isSaved
+                              ? Colors.white
+                              : theme.colorScheme.onPrimaryContainer,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
@@ -344,10 +428,16 @@ class _ResultScreenState extends State<ResultScreen> {
                       child: OutlinedButton.icon(
                         onPressed: _predictedPh == null ? null : _shareReport,
                         icon: const Icon(Icons.share),
-                        label: const Text('Share Report', style: TextStyle(fontWeight: FontWeight.bold)),
+                        label: const Text(
+                          'Share Report',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
-                          side: BorderSide(color: theme.colorScheme.primary, width: 2),
+                          side: BorderSide(
+                            color: theme.colorScheme.primary,
+                            width: 2,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
@@ -449,9 +539,18 @@ class _ResultScreenState extends State<ResultScreen> {
           const Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('0.0 (Acid)', style: TextStyle(fontSize: 11, color: Colors.grey)),
-              Text('7.0 (Neutral)', style: TextStyle(fontSize: 11, color: Colors.grey)),
-              Text('14.0 (Base)', style: TextStyle(fontSize: 11, color: Colors.grey)),
+              Text(
+                '0.0 (Acid)',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+              Text(
+                '7.0 (Neutral)',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+              Text(
+                '14.0 (Base)',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
             ],
           ),
         ],
@@ -471,7 +570,10 @@ class _ResultScreenState extends State<ResultScreen> {
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderColor.withValues(alpha: 0.5), width: 1.5),
+        border: Border.all(
+          color: borderColor.withValues(alpha: 0.5),
+          width: 1.5,
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.04),
@@ -518,7 +620,10 @@ class _ResultScreenState extends State<ResultScreen> {
                 const SizedBox(width: 6),
                 Text(
                   'RGB(${rgb[0]}, ${rgb[1]}, ${rgb[2]})',
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),

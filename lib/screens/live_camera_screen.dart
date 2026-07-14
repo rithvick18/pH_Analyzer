@@ -1,4 +1,4 @@
-import 'dart:isolate';
+import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import '../services/ph_analyzer.dart';
@@ -79,7 +79,10 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
   void _onPanStart(DragStartDetails details, Size canvasSize) {
     if (canvasSize.width <= 0 || canvasSize.height <= 0) return;
     final normX = (details.localPosition.dx / canvasSize.width).clamp(0.0, 1.0);
-    final normY = (details.localPosition.dy / canvasSize.height).clamp(0.0, 1.0);
+    final normY = (details.localPosition.dy / canvasSize.height).clamp(
+      0.0,
+      1.0,
+    );
     final normPoint = Offset(normX, normY);
 
     setState(() {
@@ -93,9 +96,16 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
   }
 
   void _onPanUpdate(DragUpdateDetails details, Size canvasSize) {
-    if (_dragStartNorm == null || canvasSize.width <= 0 || canvasSize.height <= 0) return;
+    if (_dragStartNorm == null ||
+        canvasSize.width <= 0 ||
+        canvasSize.height <= 0) {
+      return;
+    }
     final normX = (details.localPosition.dx / canvasSize.width).clamp(0.0, 1.0);
-    final normY = (details.localPosition.dy / canvasSize.height).clamp(0.0, 1.0);
+    final normY = (details.localPosition.dy / canvasSize.height).clamp(
+      0.0,
+      1.0,
+    );
     final normPoint = Offset(normX, normY);
 
     setState(() {
@@ -114,7 +124,10 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
   }
 
   Future<void> _captureAndAnalyze() async {
-    if (_controller == null || !_controller!.value.isInitialized || _isCapturing) return;
+    if (_controller == null ||
+        !_controller!.value.isInitialized ||
+        _isCapturing)
+      return;
 
     setState(() {
       _isCapturing = true;
@@ -124,17 +137,17 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
       final XFile file = await _controller!.takePicture();
       final String path = file.path;
 
-      // Load image off-thread to get exact dimensions and normalize orientation
-      final imgDimensions = await Isolate.run(() {
-        final image = PHAnalyzer.loadAndNormalizeImage(path);
-        return {
-          'width': image.width,
-          'height': image.height,
-        };
-      });
+      // Check if file exists and is accessible
+      final fileHandle = File(path);
+      if (!await fileHandle.exists()) {
+        throw Exception('Captured image file does not exist at path: $path');
+      }
 
-      final double imgW = (imgDimensions['width'] as int).toDouble();
-      final double imgH = (imgDimensions['height'] as int).toDouble();
+      // Load image dimensions directly without using isolate for now
+      // (We'll handle the heavy processing in ResultScreen)
+      final image = PHAnalyzer.loadAndNormalizeImage(path);
+      final double imgW = image.width.toDouble();
+      final double imgH = image.height.toDouble();
 
       final Rect dyeImageRect = Rect.fromLTRB(
         (_dyeNormRect.left * imgW).clamp(0.0, imgW),
@@ -150,11 +163,16 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
         (_bgNormRect.bottom * imgH).clamp(0.0, imgH),
       );
 
-      if (dyeImageRect.width < 2 || dyeImageRect.height < 2 || bgImageRect.width < 2 || bgImageRect.height < 2) {
+      if (dyeImageRect.width < 2 ||
+          dyeImageRect.height < 2 ||
+          bgImageRect.width < 2 ||
+          bgImageRect.height < 2) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Selected ROI boxes are too small. Please draw larger boxes.'),
+              content: Text(
+                'Selected ROI boxes are too small. Please draw larger boxes.',
+              ),
               backgroundColor: Colors.redAccent,
             ),
           );
@@ -176,7 +194,10 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Capture error: $e'), backgroundColor: Colors.redAccent),
+          SnackBar(
+            content: Text('Capture error: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
         );
       }
     } finally {
@@ -201,7 +222,11 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.videocam_off, color: Colors.redAccent, size: 64),
+                const Icon(
+                  Icons.videocam_off,
+                  color: Colors.redAccent,
+                  size: 64,
+                ),
                 const SizedBox(height: 16),
                 Text(_errorMessage!, textAlign: TextAlign.center),
                 const SizedBox(height: 24),
@@ -246,10 +271,14 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                 aspectRatio: 1.0 / _controller!.value.aspectRatio,
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final Size canvasSize = Size(constraints.maxWidth, constraints.maxHeight);
+                    final Size canvasSize = Size(
+                      constraints.maxWidth,
+                      constraints.maxHeight,
+                    );
                     return GestureDetector(
                       onPanStart: (details) => _onPanStart(details, canvasSize),
-                      onPanUpdate: (details) => _onPanUpdate(details, canvasSize),
+                      onPanUpdate: (details) =>
+                          _onPanUpdate(details, canvasSize),
                       onPanEnd: _onPanEnd,
                       child: Stack(
                         fit: StackFit.expand,
@@ -314,19 +343,28 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                     },
                     icon: Icon(
                       Icons.swap_horiz,
-                      color: _currentMode == SelectionMode.dye ? Colors.white : Colors.white,
+                      color: _currentMode == SelectionMode.dye
+                          ? Colors.white
+                          : Colors.white,
                     ),
                     label: Text(
                       _currentMode == SelectionMode.dye
                           ? 'Switch ROI: Active [Red Dye Pad]'
                           : 'Switch ROI: Active [Blue Reference]',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
                     ),
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      backgroundColor: _currentMode == SelectionMode.dye ? Colors.redAccent : Colors.blueAccent,
+                      backgroundColor: _currentMode == SelectionMode.dye
+                          ? Colors.redAccent
+                          : Colors.blueAccent,
                       foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
                   ),
                 ),
@@ -339,18 +377,28 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                   ? const SizedBox(
                       width: 20,
                       height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
                   : const Icon(Icons.camera),
               label: Text(
-                _isCapturing ? 'Capturing & Analyzing...' : 'Capture & Analyze pH',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                _isCapturing
+                    ? 'Capturing & Analyzing...'
+                    : 'Capture & Analyze pH',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size.fromHeight(56),
                 backgroundColor: theme.colorScheme.primary,
                 foregroundColor: theme.colorScheme.onPrimary,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
               ),
             ),
           ],
@@ -394,7 +442,9 @@ class _LiveROIPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = activeMode == SelectionMode.dye ? 3.5 : 2.0;
     final redFill = Paint()
-      ..color = Colors.redAccent.withValues(alpha: activeMode == SelectionMode.dye ? 0.3 : 0.15)
+      ..color = Colors.redAccent.withValues(
+        alpha: activeMode == SelectionMode.dye ? 0.3 : 0.15,
+      )
       ..style = PaintingStyle.fill;
 
     canvas.drawRect(dyeRect, redFill);
@@ -407,7 +457,9 @@ class _LiveROIPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = activeMode == SelectionMode.reference ? 3.5 : 2.0;
     final blueFill = Paint()
-      ..color = Colors.blueAccent.withValues(alpha: activeMode == SelectionMode.reference ? 0.3 : 0.15)
+      ..color = Colors.blueAccent.withValues(
+        alpha: activeMode == SelectionMode.reference ? 0.3 : 0.15,
+      )
       ..style = PaintingStyle.fill;
 
     canvas.drawRect(bgRect, blueFill);
@@ -418,9 +470,16 @@ class _LiveROIPainter extends CustomPainter {
   void _drawBadge(Canvas canvas, String text, Offset position, Color color) {
     final textSpan = TextSpan(
       text: text,
-      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 11,
+        fontWeight: FontWeight.bold,
+      ),
     );
-    final textPainter = TextPainter(text: textSpan, textDirection: TextDirection.ltr)..layout();
+    final textPainter = TextPainter(
+      text: textSpan,
+      textDirection: TextDirection.ltr,
+    )..layout();
 
     final badgeRect = Rect.fromLTWH(
       position.dx,
@@ -430,7 +489,10 @@ class _LiveROIPainter extends CustomPainter {
     );
 
     final bgPaint = Paint()..color = color;
-    canvas.drawRRect(RRect.fromRectAndRadius(badgeRect, const Radius.circular(6)), bgPaint);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(badgeRect, const Radius.circular(6)),
+      bgPaint,
+    );
     textPainter.paint(canvas, Offset(badgeRect.left + 5, badgeRect.top + 2));
   }
 
