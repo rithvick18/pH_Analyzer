@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import '../services/ph_analyzer.dart';
@@ -126,28 +127,36 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
   Future<void> _captureAndAnalyze() async {
     if (_controller == null ||
         !_controller!.value.isInitialized ||
-        _isCapturing)
+        _isCapturing) {
       return;
+    }
 
     setState(() {
       _isCapturing = true;
     });
 
     try {
+      // Capture the image - ensure we only use the path string, not the controller
       final XFile file = await _controller!.takePicture();
-      final String path = file.path;
+      final String imagePath = file.path;
 
-      // Check if file exists and is accessible
-      final fileHandle = File(path);
+      // Verify the file exists using only the path string
+      final fileHandle = File(imagePath);
       if (!await fileHandle.exists()) {
-        throw Exception('Captured image file does not exist at path: $path');
+        throw Exception(
+          'Captured image file does not exist at path: $imagePath',
+        );
       }
 
-      // Load image dimensions directly without using isolate for now
-      // (We'll handle the heavy processing in ResultScreen)
-      final image = PHAnalyzer.loadAndNormalizeImage(path);
-      final double imgW = image.width.toDouble();
-      final double imgH = image.height.toDouble();
+      // Get image dimensions in an isolate to avoid blocking the UI
+      // Only pass the path string (which is sendable) to the isolate
+      final imgDimensions = await Isolate.run(() {
+        final image = PHAnalyzer.loadAndNormalizeImage(imagePath);
+        return {'width': image.width, 'height': image.height};
+      });
+
+      final double imgW = (imgDimensions['width'] as int).toDouble();
+      final double imgH = (imgDimensions['height'] as int).toDouble();
 
       final Rect dyeImageRect = Rect.fromLTRB(
         (_dyeNormRect.left * imgW).clamp(0.0, imgW),
@@ -184,7 +193,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => ResultScreen(
-              imagePath: path,
+              imagePath: imagePath,
               dyeRect: dyeImageRect,
               bgRect: bgImageRect,
             ),
