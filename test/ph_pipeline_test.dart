@@ -10,14 +10,14 @@ void main() {
   const String sampleCalibrationJson = '''
 {
   "anchors": [
-    { "ph": 0.0,  "dye_rgb": [255, 240, 200], "bg_rgb": [250, 250, 245] },
-    { "ph": 1.5,  "dye_rgb": [248, 230, 190], "bg_rgb": [250, 250, 245] },
-    { "ph": 2.3,  "dye_rgb": [240, 210, 170], "bg_rgb": [250, 250, 245] },
-    { "ph": 2.9,  "dye_rgb": [230, 180, 150], "bg_rgb": [250, 250, 245] },
-    { "ph": 7.0,  "dye_rgb": [200, 140, 100], "bg_rgb": [250, 250, 245] },
-    { "ph": 9.5,  "dye_rgb": [160, 160, 200], "bg_rgb": [250, 250, 245] },
-    { "ph": 11.5, "dye_rgb": [120, 190, 220], "bg_rgb": [250, 250, 245] },
-    { "ph": 14.0, "dye_rgb": [60, 60, 180],  "bg_rgb": [250, 250, 245] }
+    { "ph": 0.0,  "dye_rgb": [255, 240, 200], "bg_rgb": [245, 245, 240] },
+    { "ph": 1.5,  "dye_rgb": [248, 230, 190], "bg_rgb": [245, 245, 240] },
+    { "ph": 2.3,  "dye_rgb": [240, 210, 170], "bg_rgb": [245, 245, 240] },
+    { "ph": 2.9,  "dye_rgb": [230, 180, 150], "bg_rgb": [245, 245, 240] },
+    { "ph": 7.0,  "dye_rgb": [200, 140, 100], "bg_rgb": [245, 245, 240] },
+    { "ph": 9.5,  "dye_rgb": [160, 160, 200], "bg_rgb": [245, 245, 240] },
+    { "ph": 11.5, "dye_rgb": [120, 190, 220], "bg_rgb": [245, 245, 240] },
+    { "ph": 14.0, "dye_rgb": [60, 60, 180],   "bg_rgb": [245, 245, 240] }
   ]
 }
 ''';
@@ -31,7 +31,7 @@ void main() {
     });
 
     test('deltaLab computes correct difference', () {
-      final delta = ColorConverter.deltaLab([200, 140, 100], [250, 250, 245]);
+      final delta = ColorConverter.deltaLab([200, 140, 100], [245, 245, 240]);
       expect(delta.length, 3);
     });
   });
@@ -75,10 +75,10 @@ void main() {
       // Create a 200x300 synthetic image
       final syntheticImg = img.Image(width: 200, height: 300);
 
-      // Fill background with [250, 250, 245]
+      // Fill background with [245, 245, 240]
       for (int y = 0; y < 300; y++) {
         for (int x = 0; x < 200; x++) {
-          syntheticImg.setPixelRgb(x, y, 250, 250, 245);
+          syntheticImg.setPixelRgb(x, y, 245, 245, 240);
         }
       }
 
@@ -102,10 +102,10 @@ void main() {
 
       final syntheticImg = img.Image(width: 200, height: 300);
 
-      // Fill background with [250, 250, 245]
+      // Fill background with [245, 245, 240]
       for (int y = 0; y < 300; y++) {
         for (int x = 0; x < 200; x++) {
-          syntheticImg.setPixelRgb(x, y, 250, 250, 245);
+          syntheticImg.setPixelRgb(x, y, 245, 245, 240);
         }
       }
 
