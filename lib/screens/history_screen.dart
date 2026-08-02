@@ -1,10 +1,15 @@
 import 'dart:io';
-import 'dart:isolate';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/prediction_record.dart';
 import '../services/export_service.dart';
 import '../services/history_service.dart';
 import '../services/ph_analyzer.dart';
+
+Map<String, int> _readImageDimensionsHistory(String path) {
+  final img = PHAnalyzer.loadAndNormalizeImage(path);
+  return {'w': img.width, 'h': img.height};
+}
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -267,10 +272,7 @@ class _RecordDetailScreenState extends State<_RecordDetailScreen> {
     final file = File(widget.record.imagePath);
     if (!file.existsSync()) return;
     try {
-      final dims = await Isolate.run(() {
-        final img = PHAnalyzer.loadAndNormalizeImage(file.path);
-        return {'w': img.width, 'h': img.height};
-      });
+      final dims = await compute(_readImageDimensionsHistory, file.path);
       if (mounted) {
         setState(() {
           _imgWidth = dims['w'] as int;

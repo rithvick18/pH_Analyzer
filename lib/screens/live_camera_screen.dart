@@ -1,10 +1,15 @@
 import 'dart:io';
-import 'dart:isolate';
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../services/ph_analyzer.dart';
 import 'roi_selector.dart' show SelectionMode;
 import 'result_screen.dart';
+
+Map<String, int> _readCameraImageDimensions(String imagePath) {
+  final image = PHAnalyzer.loadAndNormalizeImage(imagePath);
+  return {'width': image.width, 'height': image.height};
+}
 
 class LiveCameraScreen extends StatefulWidget {
   const LiveCameraScreen({super.key});
@@ -149,11 +154,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
       }
 
       // Get image dimensions in an isolate to avoid blocking the UI
-      // Only pass the path string (which is sendable) to the isolate
-      final imgDimensions = await Isolate.run(() {
-        final image = PHAnalyzer.loadAndNormalizeImage(imagePath);
-        return {'width': image.width, 'height': image.height};
-      });
+      final imgDimensions = await compute(_readCameraImageDimensions, imagePath);
 
       final double imgW = (imgDimensions['width'] as int).toDouble();
       final double imgH = (imgDimensions['height'] as int).toDouble();

@@ -1,12 +1,30 @@
 import 'dart:io';
-import 'dart:isolate';
 import 'dart:math' as math;
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 import '../services/ph_analyzer.dart';
 import 'result_screen.dart';
+
+Future<Map<String, dynamic>> _loadAndNormalizeIsolate(
+  Map<String, String> params,
+) async {
+  final path = params['path']!;
+  final tempDirPath = params['tempDirPath']!;
+  final image = PHAnalyzer.loadAndNormalizeImage(path);
+  final normalizedFile = File(
+    '$tempDirPath/normalized_${DateTime.now().millisecondsSinceEpoch}.jpg',
+  );
+  final jpgBytes = img.encodeJpg(image, quality: 95);
+  await normalizedFile.writeAsBytes(jpgBytes);
+  return {
+    'bytes': jpgBytes,
+    'width': image.width,
+    'height': image.height,
+    'path': normalizedFile.path,
+  };
+}
 
 enum SelectionMode { dye, reference }
 
@@ -46,20 +64,10 @@ class _ROISelectorState extends State<ROISelector> {
   Future<void> _loadAndNormalize() async {
     try {
       final path = widget.imagePath;
-      final result = await Isolate.run(() async {
-        final image = PHAnalyzer.loadAndNormalizeImage(path);
-        final tempDir = await getTemporaryDirectory();
-        final normalizedFile = File(
-          '${tempDir.path}/normalized_${DateTime.now().millisecondsSinceEpoch}.jpg',
-        );
-        final jpgBytes = img.encodeJpg(image, quality: 95);
-        await normalizedFile.writeAsBytes(jpgBytes);
-        return {
-          'bytes': jpgBytes,
-          'width': image.width,
-          'height': image.height,
-          'path': normalizedFile.path,
-        };
+      final tempDir = await getTemporaryDirectory();
+      final result = await compute(_loadAndNormalizeIsolate, {
+        'path': path,
+        'tempDirPath': tempDir.path,
       });
 
       if (mounted) {

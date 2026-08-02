@@ -1,5 +1,4 @@
-import 'dart:isolate';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import '../services/analyzer_isolate.dart';
@@ -7,6 +6,75 @@ import '../services/export_service.dart';
 import '../services/history_service.dart';
 import '../services/ph_analyzer.dart';
 import '../services/robust_extractor.dart';
+
+Map<String, dynamic> _generateThumbnailsIsolate(Map<String, dynamic> params) {
+  final path = params['path'] as String;
+  final dyeRectMap = params['dyeRectMap'] as Map<String, dynamic>;
+  final bgRectMap = params['bgRectMap'] as Map<String, dynamic>;
+
+  final image = PHAnalyzer.loadAndNormalizeImage(path);
+
+  final dyeR = Rect.fromLTWH(
+    dyeRectMap['left'] as double,
+    dyeRectMap['top'] as double,
+    dyeRectMap['width'] as double,
+    dyeRectMap['height'] as double,
+  );
+
+  final bgR = Rect.fromLTWH(
+    bgRectMap['left'] as double,
+    bgRectMap['top'] as double,
+    bgRectMap['width'] as double,
+    bgRectMap['height'] as double,
+  );
+
+  final int dyeLeft = dyeR.left.floor().clamp(0, image.width - 1);
+  final int dyeTop = dyeR.top.floor().clamp(0, image.height - 1);
+  final int dyeW = (dyeR.right.ceil() - dyeLeft).clamp(
+    1,
+    image.width - dyeLeft,
+  );
+  final int dyeH = (dyeR.bottom.ceil() - dyeTop).clamp(
+    1,
+    image.height - dyeTop,
+  );
+
+  final int bgLeft = bgR.left.floor().clamp(0, image.width - 1);
+  final int bgTop = bgR.top.floor().clamp(0, image.height - 1);
+  final int bgW = (bgR.right.ceil() - bgLeft).clamp(
+    1,
+    image.width - bgLeft,
+  );
+  final int bgH = (bgR.bottom.ceil() - bgTop).clamp(
+    1,
+    image.height - bgTop,
+  );
+
+  final dyePatch = img.copyCrop(
+    image,
+    x: dyeLeft,
+    y: dyeTop,
+    width: dyeW,
+    height: dyeH,
+  );
+  final bgPatch = img.copyCrop(
+    image,
+    x: bgLeft,
+    y: bgTop,
+    width: bgW,
+    height: bgH,
+  );
+
+  final dyeRgb = RobustColorExtractor.extract(dyePatch);
+  final bgRgb = RobustColorExtractor.extract(bgPatch);
+
+  return {
+    'dyeThumb': img.encodeJpg(dyePatch, quality: 90),
+    'bgThumb': img.encodeJpg(bgPatch, quality: 90),
+    'dyeRgb': dyeRgb,
+    'bgRgb': bgRgb,
+  };
+}
 
 class ResultScreen extends StatefulWidget {
   final String imagePath;
@@ -88,70 +156,10 @@ class _ResultScreenState extends State<ResultScreen> {
 
       final path = widget.imagePath;
 
-      final thumbnailFuture = Isolate.run(() {
-        final image = PHAnalyzer.loadAndNormalizeImage(path);
-
-        // Reconstruct Rect objects from the maps
-        final dyeR = Rect.fromLTWH(
-          dyeRectMap['left'] as double,
-          dyeRectMap['top'] as double,
-          dyeRectMap['width'] as double,
-          dyeRectMap['height'] as double,
-        );
-
-        final bgR = Rect.fromLTWH(
-          bgRectMap['left'] as double,
-          bgRectMap['top'] as double,
-          bgRectMap['width'] as double,
-          bgRectMap['height'] as double,
-        );
-
-        final int dyeLeft = dyeR.left.floor().clamp(0, image.width - 1);
-        final int dyeTop = dyeR.top.floor().clamp(0, image.height - 1);
-        final int dyeW = (dyeR.right.ceil() - dyeLeft).clamp(
-          1,
-          image.width - dyeLeft,
-        );
-        final int dyeH = (dyeR.bottom.ceil() - dyeTop).clamp(
-          1,
-          image.height - dyeTop,
-        );
-
-        final int bgLeft = bgR.left.floor().clamp(0, image.width - 1);
-        final int bgTop = bgR.top.floor().clamp(0, image.height - 1);
-        final int bgW = (bgR.right.ceil() - bgLeft).clamp(
-          1,
-          image.width - bgLeft,
-        );
-        final int bgH = (bgR.bottom.ceil() - bgTop).clamp(
-          1,
-          image.height - bgTop,
-        );
-
-        final dyePatch = img.copyCrop(
-          image,
-          x: dyeLeft,
-          y: dyeTop,
-          width: dyeW,
-          height: dyeH,
-        );
-        final bgPatch = img.copyCrop(
-          image,
-          x: bgLeft,
-          y: bgTop,
-          width: bgW,
-          height: bgH,
-        );
-
-        final dyeRgb = RobustColorExtractor.extract(dyePatch);
-        final bgRgb = RobustColorExtractor.extract(bgPatch);
-
-        return {
-          'dyeThumb': img.encodeJpg(dyePatch, quality: 90),
-          'bgThumb': img.encodeJpg(bgPatch, quality: 90),
-          'dyeRgb': dyeRgb,
-          'bgRgb': bgRgb,
-        };
+      final thumbnailFuture = compute(_generateThumbnailsIsolate, {
+        'path': path,
+        'dyeRectMap': dyeRectMap,
+        'bgRectMap': bgRectMap,
       });
 
       final results = await Future.wait([phFuture, thumbnailFuture]);
