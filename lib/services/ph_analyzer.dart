@@ -78,26 +78,41 @@ class PHAnalyzer {
   }
 
   /// Predicts the pH value for the given [imagePath] and ROI rects in original image coordinates.
-  double predict(String imagePath, Rect dyeRect, Rect bgRect) {
+  double predict(
+    String imagePath,
+    Rect dyeRect, [
+    Rect? bgRect,
+    List<int> referenceRgb = const [245, 245, 240],
+  ]) {
     if (splineL == null || splineA == null || splineB == null) {
-      throw StateError('PHAnalyzer is not trained. Call trainFromAssets or trainFromJsonString first.');
+      throw StateError(
+        'PHAnalyzer is not trained. Call trainFromAssets or trainFromJsonString first.',
+      );
     }
 
     final image = loadAndNormalizeImage(imagePath);
-    return predictFromImage(image, dyeRect, bgRect);
+    return predictFromImage(image, dyeRect, bgRect, referenceRgb);
   }
 
   /// Predicts the pH value directly from an [img.Image] and ROI rects.
-  double predictFromImage(img.Image image, Rect dyeRect, Rect bgRect) {
+  double predictFromImage(
+    img.Image image,
+    Rect dyeRect, [
+    Rect? bgRect,
+    List<int> referenceRgb = const [245, 245, 240],
+  ]) {
     if (splineL == null || splineA == null || splineB == null) {
-      throw StateError('PHAnalyzer is not trained. Call trainFromAssets or trainFromJsonString first.');
+      throw StateError(
+        'PHAnalyzer is not trained. Call trainFromAssets or trainFromJsonString first.',
+      );
     }
 
     final croppedDye = _cropPatchSafe(image, dyeRect);
-    final croppedBg = _cropPatchSafe(image, bgRect);
-
     final dyeRgb = RobustColorExtractor.extract(croppedDye);
-    final bgRgb = RobustColorExtractor.extract(croppedBg);
+
+    final bgRgb = bgRect != null
+        ? RobustColorExtractor.extract(_cropPatchSafe(image, bgRect))
+        : referenceRgb;
 
     return predictFromRgb(dyeRgb, bgRgb);
   }

@@ -3,7 +3,6 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../services/ph_analyzer.dart';
-import 'roi_selector.dart' show SelectionMode;
 import 'result_screen.dart';
 
 Map<String, int> _readCameraImageDimensions(String imagePath) {
@@ -24,11 +23,8 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
   bool _isCapturing = false;
   String? _errorMessage;
 
-  SelectionMode _currentMode = SelectionMode.dye;
-
-  // Normalized coordinates (0..1) relative to camera preview
+  // Normalized coordinates (0..1) relative to camera preview for single Dye Pad ROI
   Rect _dyeNormRect = const Rect.fromLTRB(0.35, 0.35, 0.65, 0.45);
-  Rect _bgNormRect = const Rect.fromLTRB(0.30, 0.55, 0.70, 0.70);
 
   Offset? _dragStartNorm;
 
@@ -93,11 +89,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
 
     setState(() {
       _dragStartNorm = normPoint;
-      if (_currentMode == SelectionMode.dye) {
-        _dyeNormRect = Rect.fromPoints(normPoint, normPoint);
-      } else {
-        _bgNormRect = Rect.fromPoints(normPoint, normPoint);
-      }
+      _dyeNormRect = Rect.fromPoints(normPoint, normPoint);
     });
   }
 
@@ -115,11 +107,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     final normPoint = Offset(normX, normY);
 
     setState(() {
-      if (_currentMode == SelectionMode.dye) {
-        _dyeNormRect = Rect.fromPoints(_dragStartNorm!, normPoint);
-      } else {
-        _bgNormRect = Rect.fromPoints(_dragStartNorm!, normPoint);
-      }
+      _dyeNormRect = Rect.fromPoints(_dragStartNorm!, normPoint);
     });
   }
 
@@ -166,22 +154,12 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
         (_dyeNormRect.bottom * imgH).clamp(0.0, imgH),
       );
 
-      final Rect bgImageRect = Rect.fromLTRB(
-        (_bgNormRect.left * imgW).clamp(0.0, imgW),
-        (_bgNormRect.top * imgH).clamp(0.0, imgH),
-        (_bgNormRect.right * imgW).clamp(0.0, imgW),
-        (_bgNormRect.bottom * imgH).clamp(0.0, imgH),
-      );
-
-      if (dyeImageRect.width < 2 ||
-          dyeImageRect.height < 2 ||
-          bgImageRect.width < 2 ||
-          bgImageRect.height < 2) {
+      if (dyeImageRect.width < 2 || dyeImageRect.height < 2) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                'Selected ROI boxes are too small. Please draw larger boxes.',
+                'Selected ROI box is too small. Please draw a larger box.',
               ),
               backgroundColor: Colors.redAccent,
             ),
@@ -196,7 +174,6 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
             builder: (_) => ResultScreen(
               imagePath: imagePath,
               dyeRect: dyeImageRect,
-              bgRect: bgImageRect,
             ),
           ),
         );
@@ -297,8 +274,6 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                           CustomPaint(
                             painter: _LiveROIPainter(
                               dyeNormRect: _dyeNormRect,
-                              bgNormRect: _bgNormRect,
-                              activeMode: _currentMode,
                             ),
                           ),
                         ],
@@ -325,7 +300,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Drag directly over camera feed to adjust ROI. Tap Switch ROI to toggle Red / Blue boxes.',
+              'Drag directly over camera feed to adjust Dye Pad ROI box.',
               style: theme.textTheme.bodySmall?.copyWith(fontSize: 12),
             ),
           ),
@@ -338,80 +313,35 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _currentMode = _currentMode == SelectionMode.dye
-                            ? SelectionMode.reference
-                            : SelectionMode.dye;
-                      });
-                    },
-                    icon: Icon(
-                      Icons.swap_horiz,
-                      color: _currentMode == SelectionMode.dye
-                          ? Colors.white
-                          : Colors.white,
-                    ),
-                    label: Text(
-                      _currentMode == SelectionMode.dye
-                          ? 'Switch ROI: Active [Red Dye Pad]'
-                          : 'Switch ROI: Active [Blue Reference]',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      backgroundColor: _currentMode == SelectionMode.dye
-                          ? Colors.redAccent
-                          : Colors.blueAccent,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
+        child: ElevatedButton.icon(
+          onPressed: _isCapturing ? null : _captureAndAnalyze,
+          icon: _isCapturing
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
                   ),
-                ),
-              ],
+                )
+              : const Icon(Icons.camera),
+          label: Text(
+            _isCapturing
+                ? 'Capturing & Analyzing...'
+                : 'Capture & Analyze pH',
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
             ),
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
-              onPressed: _isCapturing ? null : _captureAndAnalyze,
-              icon: _isCapturing
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.camera),
-              label: Text(
-                _isCapturing
-                    ? 'Capturing & Analyzing...'
-                    : 'Capture & Analyze pH',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size.fromHeight(56),
-                backgroundColor: theme.colorScheme.primary,
-                foregroundColor: theme.colorScheme.onPrimary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
+          ),
+          style: ElevatedButton.styleFrom(
+            minimumSize: const Size.fromHeight(56),
+            backgroundColor: theme.colorScheme.primary,
+            foregroundColor: theme.colorScheme.onPrimary,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -420,13 +350,9 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
 
 class _LiveROIPainter extends CustomPainter {
   final Rect dyeNormRect;
-  final Rect bgNormRect;
-  final SelectionMode activeMode;
 
   _LiveROIPainter({
     required this.dyeNormRect,
-    required this.bgNormRect,
-    required this.activeMode,
   });
 
   @override
@@ -439,42 +365,18 @@ class _LiveROIPainter extends CustomPainter {
       dyeNormRect.bottom * size.height,
     );
 
-    final bgRect = Rect.fromLTRB(
-      bgNormRect.left * size.width,
-      bgNormRect.top * size.height,
-      bgNormRect.right * size.width,
-      bgNormRect.bottom * size.height,
-    );
-
-    // Paint Dye Pad (Red)
+    // Paint Dye Pad (Red Accent)
     final redBorder = Paint()
       ..color = Colors.redAccent
       ..style = PaintingStyle.stroke
-      ..strokeWidth = activeMode == SelectionMode.dye ? 3.5 : 2.0;
+      ..strokeWidth = 3.5;
     final redFill = Paint()
-      ..color = Colors.redAccent.withValues(
-        alpha: activeMode == SelectionMode.dye ? 0.3 : 0.15,
-      )
+      ..color = Colors.redAccent.withValues(alpha: 0.3)
       ..style = PaintingStyle.fill;
 
     canvas.drawRect(dyeRect, redFill);
     canvas.drawRect(dyeRect, redBorder);
-    _drawBadge(canvas, 'Dye Pad (Red)', dyeRect.topLeft, Colors.redAccent);
-
-    // Paint Reference Paper (Blue)
-    final blueBorder = Paint()
-      ..color = Colors.blueAccent
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = activeMode == SelectionMode.reference ? 3.5 : 2.0;
-    final blueFill = Paint()
-      ..color = Colors.blueAccent.withValues(
-        alpha: activeMode == SelectionMode.reference ? 0.3 : 0.15,
-      )
-      ..style = PaintingStyle.fill;
-
-    canvas.drawRect(bgRect, blueFill);
-    canvas.drawRect(bgRect, blueBorder);
-    _drawBadge(canvas, 'Reference (Blue)', bgRect.topLeft, Colors.blueAccent);
+    _drawBadge(canvas, 'Dye Pad ROI', dyeRect.topLeft, Colors.redAccent);
   }
 
   void _drawBadge(Canvas canvas, String text, Offset position, Color color) {
@@ -508,8 +410,6 @@ class _LiveROIPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _LiveROIPainter oldDelegate) {
-    return oldDelegate.dyeNormRect != dyeNormRect ||
-        oldDelegate.bgNormRect != bgNormRect ||
-        oldDelegate.activeMode != activeMode;
+    return oldDelegate.dyeNormRect != dyeNormRect;
   }
 }

@@ -14,7 +14,7 @@ class ExportService {
   static Future<void> sharePhReport({
     required String imagePath,
     required Rect dyeRect,
-    required Rect bgRect,
+    Rect? bgRect,
     required double phValue,
     String? note,
   }) async {
@@ -30,16 +30,20 @@ class ExportService {
       final int dyeW = (dyeRect.right.ceil() - dyeL).clamp(1, image.width - dyeL);
       final int dyeH = (dyeRect.bottom.ceil() - dyeT).clamp(1, image.height - dyeT);
 
-      final int bgL = bgRect.left.floor().clamp(0, image.width - 1);
-      final int bgT = bgRect.top.floor().clamp(0, image.height - 1);
-      final int bgW = (bgRect.right.ceil() - bgL).clamp(1, image.width - bgL);
-      final int bgH = (bgRect.bottom.ceil() - bgT).clamp(1, image.height - bgT);
-
       final dyePatch = img.copyCrop(image, x: dyeL, y: dyeT, width: dyeW, height: dyeH);
-      final bgPatch = img.copyCrop(image, x: bgL, y: bgT, width: bgW, height: bgH);
-
       final dyeRgb = RobustColorExtractor.extract(dyePatch);
-      final bgRgb = RobustColorExtractor.extract(bgPatch);
+
+      List<int> bgRgb;
+      if (bgRect != null) {
+        final int bgL = bgRect.left.floor().clamp(0, image.width - 1);
+        final int bgT = bgRect.top.floor().clamp(0, image.height - 1);
+        final int bgW = (bgRect.right.ceil() - bgL).clamp(1, image.width - bgL);
+        final int bgH = (bgRect.bottom.ceil() - bgT).clamp(1, image.height - bgT);
+        final bgPatch = img.copyCrop(image, x: bgL, y: bgT, width: bgW, height: bgH);
+        bgRgb = RobustColorExtractor.extract(bgPatch);
+      } else {
+        bgRgb = const [245, 245, 240];
+      }
 
       // Draw thick colored rectangles over a copy of the image for visual verification in the PDF
       final annotatedImage = image.clone();
@@ -55,14 +59,20 @@ class ExportService {
           y2: (dyeT + dyeH + w).clamp(0, annotatedImage.height - 1),
           color: redColor,
         );
-        img.drawRect(
-          annotatedImage,
-          x1: (bgL - w).clamp(0, annotatedImage.width - 1),
-          y1: (bgT - w).clamp(0, annotatedImage.height - 1),
-          x2: (bgL + bgW + w).clamp(0, annotatedImage.width - 1),
-          y2: (bgT + bgH + w).clamp(0, annotatedImage.height - 1),
-          color: blueColor,
-        );
+        if (bgRect != null) {
+          final int bgL = bgRect.left.floor().clamp(0, image.width - 1);
+          final int bgT = bgRect.top.floor().clamp(0, image.height - 1);
+          final int bgW = (bgRect.right.ceil() - bgL).clamp(1, image.width - bgL);
+          final int bgH = (bgRect.bottom.ceil() - bgT).clamp(1, image.height - bgT);
+          img.drawRect(
+            annotatedImage,
+            x1: (bgL - w).clamp(0, annotatedImage.width - 1),
+            y1: (bgT - w).clamp(0, annotatedImage.height - 1),
+            x2: (bgL + bgW + w).clamp(0, annotatedImage.width - 1),
+            y2: (bgH + bgT + w).clamp(0, annotatedImage.height - 1),
+            color: blueColor,
+          );
+        }
       }
 
       final jpgBytes = img.encodeJpg(annotatedImage, quality: 88);
@@ -214,14 +224,24 @@ class ExportService {
                         children: [
                           _buildColorRow('Dye Pad (Red ROI)', dyeRgb),
                           pw.SizedBox(height: 12),
-                          _buildColorRow('Reference (Blue ROI)', bgRgb),
+                          _buildColorRow(
+                            bgRect != null
+                                ? 'Reference (Blue ROI)'
+                                : 'Reference White (Constant)',
+                            bgRgb,
+                          ),
                           pw.SizedBox(height: 16),
                           pw.Divider(color: PdfColors.grey300),
                           pw.SizedBox(height: 8),
                           _buildDetailItem('Method', 'Edge Natural Cubic Spline'),
                           _buildDetailItem('Color Space', 'CIELAB (D65 Illuminant)'),
                           _buildDetailItem('Dye ROI', '($dyeL, $dyeT) ${dyeW}x$dyeH'),
-                          _buildDetailItem('Bg ROI', '($bgL, $bgT) ${bgW}x$bgH'),
+                          _buildDetailItem(
+                            'Bg Reference',
+                            bgRect != null
+                                ? '(${bgRect.left.toInt()}, ${bgRect.top.toInt()}) ${bgRect.width.toInt()}x${bgRect.height.toInt()}'
+                                : 'Constant [245, 245, 240]',
+                          ),
                         ],
                       ),
                     ),

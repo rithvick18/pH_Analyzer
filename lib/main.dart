@@ -77,7 +77,7 @@ class _AppInitializerState extends State<AppInitializer> {
   Future<void> _initializeApp() async {
     try {
       // Platform-specific initialization
-      debugPrint('Starting app initialization on ${defaultTargetPlatform}');
+      debugPrint('Starting app initialization on $defaultTargetPlatform');
 
       // Initialize Hive database with better error handling
       try {

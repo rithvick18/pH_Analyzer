@@ -10,7 +10,7 @@ import '../services/robust_extractor.dart';
 Map<String, dynamic> _generateThumbnailsIsolate(Map<String, dynamic> params) {
   final path = params['path'] as String;
   final dyeRectMap = params['dyeRectMap'] as Map<String, dynamic>;
-  final bgRectMap = params['bgRectMap'] as Map<String, dynamic>;
+  final bgRectMap = params['bgRectMap'] as Map<String, dynamic>?;
 
   final image = PHAnalyzer.loadAndNormalizeImage(path);
 
@@ -19,13 +19,6 @@ Map<String, dynamic> _generateThumbnailsIsolate(Map<String, dynamic> params) {
     dyeRectMap['top'] as double,
     dyeRectMap['width'] as double,
     dyeRectMap['height'] as double,
-  );
-
-  final bgR = Rect.fromLTWH(
-    bgRectMap['left'] as double,
-    bgRectMap['top'] as double,
-    bgRectMap['width'] as double,
-    bgRectMap['height'] as double,
   );
 
   final int dyeLeft = dyeR.left.floor().clamp(0, image.width - 1);
@@ -39,17 +32,6 @@ Map<String, dynamic> _generateThumbnailsIsolate(Map<String, dynamic> params) {
     image.height - dyeTop,
   );
 
-  final int bgLeft = bgR.left.floor().clamp(0, image.width - 1);
-  final int bgTop = bgR.top.floor().clamp(0, image.height - 1);
-  final int bgW = (bgR.right.ceil() - bgLeft).clamp(
-    1,
-    image.width - bgLeft,
-  );
-  final int bgH = (bgR.bottom.ceil() - bgTop).clamp(
-    1,
-    image.height - bgTop,
-  );
-
   final dyePatch = img.copyCrop(
     image,
     x: dyeLeft,
@@ -57,16 +39,41 @@ Map<String, dynamic> _generateThumbnailsIsolate(Map<String, dynamic> params) {
     width: dyeW,
     height: dyeH,
   );
-  final bgPatch = img.copyCrop(
-    image,
-    x: bgLeft,
-    y: bgTop,
-    width: bgW,
-    height: bgH,
-  );
-
   final dyeRgb = RobustColorExtractor.extract(dyePatch);
-  final bgRgb = RobustColorExtractor.extract(bgPatch);
+
+  img.Image bgPatch;
+  List<int> bgRgb;
+
+  if (bgRectMap != null) {
+    final bgR = Rect.fromLTWH(
+      bgRectMap['left'] as double,
+      bgRectMap['top'] as double,
+      bgRectMap['width'] as double,
+      bgRectMap['height'] as double,
+    );
+    final int bgLeft = bgR.left.floor().clamp(0, image.width - 1);
+    final int bgTop = bgR.top.floor().clamp(0, image.height - 1);
+    final int bgW = (bgR.right.ceil() - bgLeft).clamp(
+      1,
+      image.width - bgLeft,
+    );
+    final int bgH = (bgR.bottom.ceil() - bgTop).clamp(
+      1,
+      image.height - bgTop,
+    );
+    bgPatch = img.copyCrop(
+      image,
+      x: bgLeft,
+      y: bgTop,
+      width: bgW,
+      height: bgH,
+    );
+    bgRgb = RobustColorExtractor.extract(bgPatch);
+  } else {
+    bgRgb = const [245, 245, 240];
+    bgPatch = img.Image(width: 70, height: 70);
+    img.fill(bgPatch, color: img.ColorRgb8(245, 245, 240));
+  }
 
   return {
     'dyeThumb': img.encodeJpg(dyePatch, quality: 90),
@@ -79,13 +86,13 @@ Map<String, dynamic> _generateThumbnailsIsolate(Map<String, dynamic> params) {
 class ResultScreen extends StatefulWidget {
   final String imagePath;
   final Rect dyeRect;
-  final Rect bgRect;
+  final Rect? bgRect;
 
   const ResultScreen({
     super.key,
     required this.imagePath,
     required this.dyeRect,
-    required this.bgRect,
+    this.bgRect,
   });
 
   @override
@@ -126,12 +133,14 @@ class _ResultScreenState extends State<ResultScreen> {
         'width': widget.dyeRect.width,
         'height': widget.dyeRect.height,
       };
-      final bgRectMap = {
-        'left': widget.bgRect.left,
-        'top': widget.bgRect.top,
-        'width': widget.bgRect.width,
-        'height': widget.bgRect.height,
-      };
+      final Map<String, dynamic>? bgRectMap = widget.bgRect != null
+          ? {
+              'left': widget.bgRect!.left,
+              'top': widget.bgRect!.top,
+              'width': widget.bgRect!.width,
+              'height': widget.bgRect!.height,
+            }
+          : null;
 
       // Create Rect objects from maps for the analyzer service
       final dyeRectForAnalyzer = Rect.fromLTWH(
@@ -141,12 +150,14 @@ class _ResultScreenState extends State<ResultScreen> {
         dyeRectMap['height'] as double,
       );
 
-      final bgRectForAnalyzer = Rect.fromLTWH(
-        bgRectMap['left'] as double,
-        bgRectMap['top'] as double,
-        bgRectMap['width'] as double,
-        bgRectMap['height'] as double,
-      );
+      final Rect? bgRectForAnalyzer = widget.bgRect != null
+          ? Rect.fromLTWH(
+              bgRectMap!['left'] as double,
+              bgRectMap['top'] as double,
+              bgRectMap['width'] as double,
+              bgRectMap['height'] as double,
+            )
+          : null;
 
       final phFuture = AnalyzerService.predictFromPath(
         widget.imagePath,
@@ -362,7 +373,9 @@ class _ResultScreenState extends State<ResultScreen> {
                     Expanded(
                       child: _buildPatchCard(
                         theme,
-                        title: 'Reference Paper',
+                        title: widget.bgRect != null
+                            ? 'Reference Paper'
+                            : 'Reference White',
                         thumbnail: _bgThumbnail,
                         rgb: _bgRgb,
                         borderColor: Colors.blueAccent,
