@@ -477,14 +477,11 @@ class _ROIPainter extends CustomPainter {
         ..color = Colors.redAccent
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3.0;
-      final paintFill = Paint()
-        ..color = Colors.redAccent.withValues(alpha: 0.25)
-        ..style = PaintingStyle.fill;
 
-      canvas.drawRect(dyeRect!, paintFill);
       canvas.drawRect(dyeRect!, paintBorder);
       _drawBadge(canvas, 'Dye Pad (Red)', dyeRect!.topLeft, Colors.redAccent);
     }
+
 
     if (bgRect != null && !bgRect!.isEmpty) {
       final paintBorder = Paint()
