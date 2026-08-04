@@ -17,7 +17,14 @@ void main() {
     });
     await tester.pump();
 
+    expect(find.text('Ref Image'), findsOneWidget);
     expect(find.text('Manual Ref'), findsOneWidget);
+
+    final refImageSwitchFinder = find.byKey(const Key('reference_image_toggle'));
+    expect(refImageSwitchFinder, findsOneWidget);
+    await tester.tap(refImageSwitchFinder);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Showing reference.jpeg. Position ROI box over dye pad.'), findsOneWidget);
 
     final switchFinder = find.byKey(const Key('manual_reference_toggle'));
     expect(switchFinder, findsOneWidget);

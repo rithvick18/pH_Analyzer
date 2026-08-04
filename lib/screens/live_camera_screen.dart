@@ -29,6 +29,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
   String? _errorMessage;
   String? _mockImagePath;
 
+  bool _useReferenceImage = false; // Toggle to switch feed to assets/Reference.jpeg
   bool _enableManualReference = false;
   LiveSelectionMode _currentMode = LiveSelectionMode.dye;
 
@@ -74,6 +75,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
               _isInitialized = true;
             });
           }
+          await _prepareMockImage();
           return;
         }
       }
@@ -169,10 +171,13 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     try {
       String imagePath;
 
-      if (_isCameraReady &&
+      final bool useLiveFeed = !_useReferenceImage &&
+          _isCameraReady &&
           _cameraController != null &&
-          _cameraController!.value.isInitialized) {
-        // Lock exposure and focus right before taking the photo to avoid ISP brightness adjustments
+          _cameraController!.value.isInitialized;
+
+      if (useLiveFeed) {
+        // Point and shoot live camera: lock exposure and focus before capture
         try {
           await _cameraController!.setExposureMode(ExposureMode.locked);
           await _cameraController!.setFocusMode(FocusMode.locked);
@@ -185,7 +190,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
       } else if (_mockImagePath != null) {
         imagePath = _mockImagePath!;
       } else {
-        throw Exception('Camera feed is not ready.');
+        throw Exception('Camera feed / Reference image is not ready.');
       }
 
       final fileHandle = File(imagePath);
@@ -324,7 +329,8 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
       );
     }
 
-    final double aspectRatio = (_isCameraReady &&
+    final double aspectRatio = (!_useReferenceImage &&
+            _isCameraReady &&
             _cameraController != null &&
             _cameraController!.value.isInitialized)
         ? _cameraController!.value.aspectRatio
@@ -333,12 +339,31 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Live Camera ROI Overlay'),
-        centerTitle: true,
+        centerTitle: false,
         actions: [
           Padding(
-            padding: const EdgeInsets.only(right: 8.0),
+            padding: const EdgeInsets.only(right: 4.0),
             child: Row(
               children: [
+                Text(
+                  'Ref Image',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: _useReferenceImage
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                Switch(
+                  key: const Key('reference_image_toggle'),
+                  value: _useReferenceImage,
+                  onChanged: (val) {
+                    setState(() {
+                      _useReferenceImage = val;
+                    });
+                  },
+                ),
+                const SizedBox(width: 4),
                 Text(
                   'Manual Ref',
                   style: theme.textTheme.labelMedium?.copyWith(
@@ -386,7 +411,8 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          if (_isCameraReady &&
+                          if (!_useReferenceImage &&
+                              _isCameraReady &&
                               _cameraController != null &&
                               _cameraController!.value.isInitialized)
                             CameraPreview(_cameraController!)
@@ -449,11 +475,17 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
       child: Row(
         children: [
-          Icon(Icons.touch_app, size: 20, color: theme.colorScheme.primary),
+          Icon(
+            _useReferenceImage ? Icons.image : Icons.camera_alt,
+            size: 20,
+            color: theme.colorScheme.primary,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Single Box Mode (Dye Pad only). Toggle "Manual Ref" to draw Reference ROI.',
+              _useReferenceImage
+                  ? 'Showing reference.jpeg. Position ROI box over dye pad.'
+                  : 'Point & shoot camera mode. Drag box over test strip dye pad.',
               style: theme.textTheme.bodySmall?.copyWith(fontSize: 12),
             ),
           ),
@@ -565,16 +597,12 @@ class _LiveROIPainter extends CustomPainter {
       dyeNormRect.bottom * size.height,
     );
 
-    // Paint Dye Pad (Red Accent)
+    // Paint Dye Pad (Red Accent Border, Transparent Interior)
     final redBorder = Paint()
       ..color = Colors.redAccent
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3.5;
-    final redFill = Paint()
-      ..color = Colors.redAccent.withValues(alpha: 0.3)
-      ..style = PaintingStyle.fill;
 
-    canvas.drawRect(dyeRect, redFill);
     canvas.drawRect(dyeRect, redBorder);
     _drawBadge(canvas, 'Dye Pad ROI', dyeRect.topLeft, Colors.redAccent);
 
