@@ -7,6 +7,16 @@ import 'color_converter.dart';
 import 'cubic_spline.dart';
 import 'robust_extractor.dart';
 
+class LuminanceException implements Exception {
+  final String message;
+  final double luma;
+
+  LuminanceException(this.message, {required this.luma});
+
+  @override
+  String toString() => 'LuminanceException: $message (Luma Y: ${luma.toStringAsFixed(1)})';
+}
+
 class PHAnalyzer {
   final Map<double, List<int>> dyeColors = {};
   final Map<double, List<int>> bgColors = {};
@@ -121,6 +131,14 @@ class PHAnalyzer {
   double predictFromRgb(List<int> dyeRgb, List<int> bgRgb) {
     if (splineL == null || splineA == null || splineB == null) {
       throw StateError('PHAnalyzer is not trained.');
+    }
+
+    final double lumaY = 0.299 * dyeRgb[0] + 0.587 * dyeRgb[1] + 0.114 * dyeRgb[2];
+    if (lumaY < 40 || lumaY > 230) {
+      throw LuminanceException(
+        'Lighting condition out of bounds. Average ROI Luma Y = ${lumaY.toStringAsFixed(1)} (must be between 40 and 230). Please adjust lighting.',
+        luma: lumaY,
+      );
     }
 
     final targetDeltaLab = ColorConverter.deltaLab(dyeRgb, bgRgb);

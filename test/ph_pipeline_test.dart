@@ -145,13 +145,32 @@ void main() {
       final analyzer = PHAnalyzer();
       analyzer.trainFromJsonString(sampleCalibrationJson);
 
-      final double lowPh = analyzer.predictFromRgb([255, 255, 255], [245, 245, 240]);
+      // Using [220, 220, 220] (Luma Y = 220, within [40, 230])
+      final double lowPh = analyzer.predictFromRgb([220, 220, 220], [245, 245, 240]);
       expect(lowPh, greaterThanOrEqualTo(0.0));
       expect(lowPh, lessThanOrEqualTo(14.0));
 
-      final double highPh = analyzer.predictFromRgb([0, 0, 0], [245, 245, 240]);
+      // Using [50, 50, 50] (Luma Y = 50, within [40, 230])
+      final double highPh = analyzer.predictFromRgb([50, 50, 50], [245, 245, 240]);
       expect(highPh, greaterThanOrEqualTo(0.0));
       expect(highPh, lessThanOrEqualTo(14.0));
+    });
+
+    test('Throws LuminanceException if average Luma is out of safe range [40, 230]', () {
+      final analyzer = PHAnalyzer();
+      analyzer.trainFromJsonString(sampleCalibrationJson);
+
+      // Too dark (Luma Y = 0)
+      expect(
+        () => analyzer.predictFromRgb([0, 0, 0], [245, 245, 240]),
+        throwsA(isA<LuminanceException>()),
+      );
+
+      // Too bright (Luma Y = 255)
+      expect(
+        () => analyzer.predictFromRgb([255, 255, 255], [245, 245, 240]),
+        throwsA(isA<LuminanceException>()),
+      );
     });
   });
 }

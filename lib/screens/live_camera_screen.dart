@@ -94,7 +94,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
               _isInitialized = true;
             });
           }
-          await _resetExposureAndFocus();
+          await _resetCameraExposure();
           await _prepareMockImage();
           return;
         }
@@ -179,7 +179,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     });
   }
 
-  Future<void> _resetExposureAndFocus() async {
+  Future<void> _resetCameraExposure() async {
     if (_cameraController != null && _cameraController!.value.isInitialized) {
       try {
         await _cameraController!.setExposureMode(ExposureMode.auto);
@@ -265,12 +265,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
           final XFile capturedFile = await _cameraController!.takePicture();
           imagePath = capturedFile.path;
         } finally {
-          try {
-            await _cameraController!.setExposureMode(ExposureMode.auto);
-          } catch (_) {}
-          try {
-            await _cameraController!.setFocusMode(FocusMode.auto);
-          } catch (_) {}
+          await _resetCameraExposure();
         }
       } else if (_mockImagePath != null) {
         imagePath = _mockImagePath!;
@@ -347,7 +342,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
             ),
           ),
         );
-        await _resetExposureAndFocus();
+        await _resetCameraExposure();
       }
     } catch (e) {
       if (mounted) {
@@ -495,7 +490,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                     );
                     return GestureDetector(
                       onTapUp: (details) => _onTapToFocus(details, canvasSize),
-                      onDoubleTap: _resetExposureAndFocus,
+                      onDoubleTap: _resetCameraExposure,
                       onPanStart: (details) => _onPanStart(details, canvasSize),
                       onPanUpdate: (details) =>
                           _onPanUpdate(details, canvasSize),
