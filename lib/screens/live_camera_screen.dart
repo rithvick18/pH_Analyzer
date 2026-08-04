@@ -1,7 +1,8 @@
 import 'dart:io';
-import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:path_provider/path_provider.dart';
 import '../services/ph_analyzer.dart';
 import 'result_screen.dart';
 
@@ -18,10 +19,10 @@ class LiveCameraScreen extends StatefulWidget {
 }
 
 class _LiveCameraScreenState extends State<LiveCameraScreen> {
-  CameraController? _controller;
-  bool _isCameraInitialized = false;
+  bool _isInitialized = false;
   bool _isCapturing = false;
   String? _errorMessage;
+  String? _mockImagePath;
 
   // Normalized coordinates (0..1) relative to camera preview for single Dye Pad ROI
   Rect _dyeNormRect = const Rect.fromLTRB(0.35, 0.35, 0.65, 0.45);
@@ -31,51 +32,33 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
   @override
   void initState() {
     super.initState();
-    _initCamera();
+    _prepareMockImage();
   }
 
-  Future<void> _initCamera() async {
+  Future<void> _prepareMockImage() async {
     try {
-      final cameras = await availableCameras();
-      if (cameras.isEmpty) {
-        if (mounted) {
-          setState(() {
-            _errorMessage = 'No available camera found on this device.';
-          });
-        }
-        return;
-      }
-
-      final backCamera = cameras.firstWhere(
-        (c) => c.lensDirection == CameraLensDirection.back,
-        orElse: () => cameras.first,
+      final tempDir = await getTemporaryDirectory();
+      final targetFile = File('${tempDir.path}/mock_reference_camera.jpeg');
+      final byteData = await rootBundle.load('assets/Reference.jpeg');
+      await targetFile.writeAsBytes(
+        byteData.buffer.asUint8List(
+          byteData.offsetInBytes,
+          byteData.lengthInBytes,
+        ),
       );
-
-      _controller = CameraController(
-        backCamera,
-        ResolutionPreset.high,
-        enableAudio: false,
-      );
-
-      await _controller!.initialize();
       if (mounted) {
         setState(() {
-          _isCameraInitialized = true;
+          _mockImagePath = targetFile.path;
+          _isInitialized = true;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = 'Failed to initialize camera: $e';
+          _errorMessage = 'Failed to load reference camera environment: $e';
         });
       }
     }
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
   }
 
   void _onPanStart(DragStartDetails details, Size canvasSize) {
@@ -118,9 +101,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
   }
 
   Future<void> _captureAndAnalyze() async {
-    if (_controller == null ||
-        !_controller!.value.isInitialized ||
-        _isCapturing) {
+    if (_mockImagePath == null || _isCapturing) {
       return;
     }
 
@@ -129,11 +110,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     });
 
     try {
-      // Capture the image - ensure we only use the path string, not the controller
-      final XFile file = await _controller!.takePicture();
-      final String imagePath = file.path;
-
-      // Verify the file exists using only the path string
+      final String imagePath = _mockImagePath!;
       final fileHandle = File(imagePath);
       if (!await fileHandle.exists()) {
         throw Exception(
@@ -228,7 +205,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
       );
     }
 
-    if (!_isCameraInitialized || _controller == null) {
+    if (!_isInitialized) {
       return Scaffold(
         appBar: AppBar(title: const Text('Live Camera')),
         body: const Center(
@@ -237,7 +214,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 16),
-              Text('Starting high-resolution camera...'),
+              Text('Loading reference camera environment...'),
             ],
           ),
         ),
@@ -255,7 +232,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
           Expanded(
             child: Center(
               child: AspectRatio(
-                aspectRatio: 1.0 / _controller!.value.aspectRatio,
+                aspectRatio: 1200.0 / 1600.0,
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final Size canvasSize = Size(
@@ -270,7 +247,10 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          CameraPreview(_controller!),
+                          Image.asset(
+                            'assets/Reference.jpeg',
+                            fit: BoxFit.cover,
+                          ),
                           CustomPaint(
                             painter: _LiveROIPainter(
                               dyeNormRect: _dyeNormRect,
