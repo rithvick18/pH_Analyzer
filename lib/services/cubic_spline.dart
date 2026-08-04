@@ -68,23 +68,24 @@ class CubicSpline {
   }
 
   double interpolate(double xVal) {
-    if (xVal <= x.first) {
+    final double clampedX = xVal.clamp(x.first, x.last);
+    if (clampedX <= x.first) {
       return y.first;
     }
-    if (xVal >= x.last) {
+    if (clampedX >= x.last) {
       return y.last;
     }
 
-    // Find interval i where xVal is in [x[i], x[i+1]]
+    // Find interval i where clampedX is in [x[i], x[i+1]]
     int i = 0;
     int low = 0;
     int high = x.length - 2;
     while (low <= high) {
       final int mid = low + ((high - low) >> 1);
-      if (xVal >= x[mid] && xVal <= x[mid + 1]) {
+      if (clampedX >= x[mid] && clampedX <= x[mid + 1]) {
         i = mid;
         break;
-      } else if (xVal < x[mid]) {
+      } else if (clampedX < x[mid]) {
         high = mid - 1;
       } else {
         low = mid + 1;
@@ -92,8 +93,8 @@ class CubicSpline {
     }
 
     final double hi = h[i];
-    final double a = (x[i + 1] - xVal) / hi;
-    final double bVal = (xVal - x[i]) / hi;
+    final double a = (x[i + 1] - clampedX) / hi;
+    final double bVal = (clampedX - x[i]) / hi;
 
     final double yVal = a * y[i] +
         bVal * y[i + 1] +

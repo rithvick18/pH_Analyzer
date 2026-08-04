@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -11,6 +12,8 @@ Map<String, int> _readCameraImageDimensions(String imagePath) {
   return {'width': image.width, 'height': image.height};
 }
 
+enum LiveSelectionMode { dye, reference }
+
 class LiveCameraScreen extends StatefulWidget {
   const LiveCameraScreen({super.key});
 
@@ -19,20 +22,65 @@ class LiveCameraScreen extends StatefulWidget {
 }
 
 class _LiveCameraScreenState extends State<LiveCameraScreen> {
+  CameraController? _cameraController;
+  bool _isCameraReady = false;
   bool _isInitialized = false;
   bool _isCapturing = false;
   String? _errorMessage;
   String? _mockImagePath;
 
-  // Normalized coordinates (0..1) relative to camera preview for single Dye Pad ROI
+  bool _enableManualReference = false;
+  LiveSelectionMode _currentMode = LiveSelectionMode.dye;
+
+  // Normalized coordinates (0..1) relative to camera preview
   Rect _dyeNormRect = const Rect.fromLTRB(0.35, 0.35, 0.65, 0.45);
+  Rect _bgNormRect = const Rect.fromLTRB(0.35, 0.55, 0.65, 0.65);
 
   Offset? _dragStartNorm;
 
   @override
   void initState() {
     super.initState();
-    _prepareMockImage();
+    _initCameraHardware();
+  }
+
+  @override
+  void dispose() {
+    _cameraController?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initCameraHardware() async {
+    try {
+      if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+        final cameras = await availableCameras();
+        if (cameras.isNotEmpty) {
+          final backCamera = cameras.firstWhere(
+            (c) => c.lensDirection == CameraLensDirection.back,
+            orElse: () => cameras.first,
+          );
+
+          final controller = CameraController(
+            backCamera,
+            ResolutionPreset.high,
+            enableAudio: false,
+          );
+
+          await controller.initialize();
+          if (mounted) {
+            setState(() {
+              _cameraController = controller;
+              _isCameraReady = true;
+              _isInitialized = true;
+            });
+          }
+          return;
+        }
+      }
+    } catch (_) {
+      // Fall back to mock reference camera mode when physical camera is unavailable
+    }
+    await _prepareMockImage();
   }
 
   Future<void> _prepareMockImage() async {
@@ -55,7 +103,8 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = 'Failed to load reference camera environment: $e';
+          _mockImagePath = 'assets/Reference.jpeg';
+          _isInitialized = true;
         });
       }
     }
@@ -72,7 +121,11 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
 
     setState(() {
       _dragStartNorm = normPoint;
-      _dyeNormRect = Rect.fromPoints(normPoint, normPoint);
+      if (_enableManualReference && _currentMode == LiveSelectionMode.reference) {
+        _bgNormRect = Rect.fromPoints(normPoint, normPoint);
+      } else {
+        _dyeNormRect = Rect.fromPoints(normPoint, normPoint);
+      }
     });
   }
 
@@ -90,7 +143,11 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     final normPoint = Offset(normX, normY);
 
     setState(() {
-      _dyeNormRect = Rect.fromPoints(_dragStartNorm!, normPoint);
+      if (_enableManualReference && _currentMode == LiveSelectionMode.reference) {
+        _bgNormRect = Rect.fromPoints(_dragStartNorm!, normPoint);
+      } else {
+        _dyeNormRect = Rect.fromPoints(_dragStartNorm!, normPoint);
+      }
     });
   }
 
@@ -101,7 +158,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
   }
 
   Future<void> _captureAndAnalyze() async {
-    if (_mockImagePath == null || _isCapturing) {
+    if (_isCapturing) {
       return;
     }
 
@@ -110,7 +167,27 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     });
 
     try {
-      final String imagePath = _mockImagePath!;
+      String imagePath;
+
+      if (_isCameraReady &&
+          _cameraController != null &&
+          _cameraController!.value.isInitialized) {
+        // Lock exposure and focus right before taking the photo to avoid ISP brightness adjustments
+        try {
+          await _cameraController!.setExposureMode(ExposureMode.locked);
+          await _cameraController!.setFocusMode(FocusMode.locked);
+        } catch (_) {
+          // Ignore if locking focus/exposure is unsupported on hardware/driver
+        }
+
+        final XFile capturedFile = await _cameraController!.takePicture();
+        imagePath = capturedFile.path;
+      } else if (_mockImagePath != null) {
+        imagePath = _mockImagePath!;
+      } else {
+        throw Exception('Camera feed is not ready.');
+      }
+
       final fileHandle = File(imagePath);
       if (!await fileHandle.exists()) {
         throw Exception(
@@ -131,12 +208,37 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
         (_dyeNormRect.bottom * imgH).clamp(0.0, imgH),
       );
 
+      final Rect? bgImageRect = _enableManualReference
+          ? Rect.fromLTRB(
+              (_bgNormRect.left * imgW).clamp(0.0, imgW),
+              (_bgNormRect.top * imgH).clamp(0.0, imgH),
+              (_bgNormRect.right * imgW).clamp(0.0, imgW),
+              (_bgNormRect.bottom * imgH).clamp(0.0, imgH),
+            )
+          : null;
+
       if (dyeImageRect.width < 2 || dyeImageRect.height < 2) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                'Selected ROI box is too small. Please draw a larger box.',
+                'Dye Pad ROI box is too small. Please draw a larger box.',
+              ),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+        return;
+      }
+
+      if (_enableManualReference &&
+          bgImageRect != null &&
+          (bgImageRect.width < 2 || bgImageRect.height < 2)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Reference Paper ROI box is too small. Please draw a larger box.',
               ),
               backgroundColor: Colors.redAccent,
             ),
@@ -151,6 +253,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
             builder: (_) => ResultScreen(
               imagePath: imagePath,
               dyeRect: dyeImageRect,
+              bgRect: bgImageRect,
             ),
           ),
         );
@@ -214,17 +317,53 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 16),
-              Text('Loading reference camera environment...'),
+              Text('Loading camera environment...'),
             ],
           ),
         ),
       );
     }
 
+    final double aspectRatio = (_isCameraReady &&
+            _cameraController != null &&
+            _cameraController!.value.isInitialized)
+        ? _cameraController!.value.aspectRatio
+        : (1200.0 / 1600.0);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Live Camera ROI Overlay'),
         centerTitle: true,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: Row(
+              children: [
+                Text(
+                  'Manual Ref',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: _enableManualReference
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                Switch(
+                  key: const Key('manual_reference_toggle'),
+                  value: _enableManualReference,
+                  onChanged: (val) {
+                    setState(() {
+                      _enableManualReference = val;
+                      if (!_enableManualReference) {
+                        _currentMode = LiveSelectionMode.dye;
+                      }
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -232,7 +371,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
           Expanded(
             child: Center(
               child: AspectRatio(
-                aspectRatio: 1200.0 / 1600.0,
+                aspectRatio: aspectRatio,
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final Size canvasSize = Size(
@@ -247,13 +386,19 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          Image.asset(
-                            'assets/Reference.jpeg',
-                            fit: BoxFit.cover,
-                          ),
+                          if (_isCameraReady &&
+                              _cameraController != null &&
+                              _cameraController!.value.isInitialized)
+                            CameraPreview(_cameraController!)
+                          else
+                            Image.asset(
+                              'assets/Reference.jpeg',
+                              fit: BoxFit.cover,
+                            ),
                           CustomPaint(
                             painter: _LiveROIPainter(
                               dyeNormRect: _dyeNormRect,
+                              bgNormRect: _enableManualReference ? _bgNormRect : null,
                             ),
                           ),
                         ],
@@ -271,6 +416,34 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
   }
 
   Widget _buildHelpBanner(ThemeData theme) {
+    if (_enableManualReference) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.8),
+        child: Row(
+          children: [
+            Expanded(
+              child: _buildModeTab(
+                label: 'Dye Pad (Red)',
+                color: Colors.redAccent,
+                isSelected: _currentMode == LiveSelectionMode.dye,
+                onTap: () => setState(() => _currentMode = LiveSelectionMode.dye),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _buildModeTab(
+                label: 'Reference (Blue)',
+                color: Colors.blueAccent,
+                isSelected: _currentMode == LiveSelectionMode.reference,
+                onTap: () => setState(() => _currentMode = LiveSelectionMode.reference),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
@@ -280,11 +453,56 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Drag directly over camera feed to adjust Dye Pad ROI box.',
+              'Single Box Mode (Dye Pad only). Toggle "Manual Ref" to draw Reference ROI.',
               style: theme.textTheme.bodySmall?.copyWith(fontSize: 12),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildModeTab({
+    required String label,
+    required Color color,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withValues(alpha: 0.2) : Colors.transparent,
+          border: Border.all(
+            color: isSelected ? color : Colors.grey.withValues(alpha: 0.4),
+            width: isSelected ? 2 : 1,
+          ),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  color: isSelected ? color : null,
+                  fontSize: 12,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -330,9 +548,11 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
 
 class _LiveROIPainter extends CustomPainter {
   final Rect dyeNormRect;
+  final Rect? bgNormRect;
 
   _LiveROIPainter({
     required this.dyeNormRect,
+    this.bgNormRect,
   });
 
   @override
@@ -357,6 +577,28 @@ class _LiveROIPainter extends CustomPainter {
     canvas.drawRect(dyeRect, redFill);
     canvas.drawRect(dyeRect, redBorder);
     _drawBadge(canvas, 'Dye Pad ROI', dyeRect.topLeft, Colors.redAccent);
+
+    // Paint Reference Paper if enabled (Blue Accent)
+    if (bgNormRect != null) {
+      final bgRect = Rect.fromLTRB(
+        bgNormRect!.left * size.width,
+        bgNormRect!.top * size.height,
+        bgNormRect!.right * size.width,
+        bgNormRect!.bottom * size.height,
+      );
+
+      final blueBorder = Paint()
+        ..color = Colors.blueAccent
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.5;
+      final blueFill = Paint()
+        ..color = Colors.blueAccent.withValues(alpha: 0.3)
+        ..style = PaintingStyle.fill;
+
+      canvas.drawRect(bgRect, blueFill);
+      canvas.drawRect(bgRect, blueBorder);
+      _drawBadge(canvas, 'Reference ROI', bgRect.topLeft, Colors.blueAccent);
+    }
   }
 
   void _drawBadge(Canvas canvas, String text, Offset position, Color color) {
@@ -390,6 +632,7 @@ class _LiveROIPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _LiveROIPainter oldDelegate) {
-    return oldDelegate.dyeNormRect != dyeNormRect;
+    return oldDelegate.dyeNormRect != dyeNormRect ||
+        oldDelegate.bgNormRect != bgNormRect;
   }
 }

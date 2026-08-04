@@ -122,5 +122,37 @@ void main() {
       final double predictedPh = analyzer.predictFromImage(syntheticImg, dyeRect, bgRect);
       expect(predictedPh, closeTo(2.3, 0.1));
     });
+
+    test('Single Dye Pad ROI uses calibrated reference baseline [245, 245, 240]', () {
+      final analyzer = PHAnalyzer();
+      analyzer.trainFromJsonString(sampleCalibrationJson);
+
+      final syntheticImg = img.Image(width: 200, height: 300);
+      for (int y = 0; y < 300; y++) {
+        for (int x = 0; x < 200; x++) {
+          syntheticImg.setPixelRgb(x, y, 200, 140, 100);
+        }
+      }
+
+      final Rect dyeRect = const Rect.fromLTRB(50, 50, 150, 150);
+
+      // Null bgRect triggers default reference baseline [245, 245, 240]
+      final double predictedPh = analyzer.predictFromImage(syntheticImg, dyeRect);
+      expect(predictedPh, closeTo(7.0, 0.1));
+    });
+
+    test('Clamps predicted pH strictly within [0.0, 14.0] boundary', () {
+      final analyzer = PHAnalyzer();
+      analyzer.trainFromJsonString(sampleCalibrationJson);
+
+      final double lowPh = analyzer.predictFromRgb([255, 255, 255], [245, 245, 240]);
+      expect(lowPh, greaterThanOrEqualTo(0.0));
+      expect(lowPh, lessThanOrEqualTo(14.0));
+
+      final double highPh = analyzer.predictFromRgb([0, 0, 0], [245, 245, 240]);
+      expect(highPh, greaterThanOrEqualTo(0.0));
+      expect(highPh, lessThanOrEqualTo(14.0));
+    });
   });
 }
+

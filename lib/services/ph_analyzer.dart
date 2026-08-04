@@ -146,7 +146,8 @@ class PHAnalyzer {
       }
     }
 
-    return double.parse(bestPh.toStringAsFixed(2));
+    final double clampedPh = bestPh.clamp(0.0, 14.0);
+    return double.parse(clampedPh.toStringAsFixed(2));
   }
 
   img.Image _cropPatchSafe(img.Image image, Rect rect) {
