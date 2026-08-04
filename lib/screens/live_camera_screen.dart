@@ -94,6 +94,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
               _isInitialized = true;
             });
           }
+          await _resetExposureAndFocus();
           await _prepareMockImage();
           return;
         }
@@ -178,6 +179,22 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     });
   }
 
+  Future<void> _resetExposureAndFocus() async {
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
+      try {
+        await _cameraController!.setExposureMode(ExposureMode.auto);
+      } catch (_) {}
+      try {
+        await _cameraController!.setFocusMode(FocusMode.auto);
+      } catch (_) {}
+    }
+    if (mounted) {
+      setState(() {
+        _focusTapPosition = null;
+      });
+    }
+  }
+
   Future<void> _onTapToFocus(TapUpDetails details, Size canvasSize) async {
     if (canvasSize.width <= 0 || canvasSize.height <= 0) return;
 
@@ -238,14 +255,23 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
       if (useLiveFeed) {
         // Point and shoot live camera: lock exposure and focus before capture
         try {
-          await _cameraController!.setExposureMode(ExposureMode.locked);
-          await _cameraController!.setFocusMode(FocusMode.locked);
-        } catch (_) {
-          // Ignore if locking focus/exposure is unsupported on hardware/driver
-        }
+          try {
+            await _cameraController!.setExposureMode(ExposureMode.locked);
+            await _cameraController!.setFocusMode(FocusMode.locked);
+          } catch (_) {
+            // Ignore if locking focus/exposure is unsupported on hardware/driver
+          }
 
-        final XFile capturedFile = await _cameraController!.takePicture();
-        imagePath = capturedFile.path;
+          final XFile capturedFile = await _cameraController!.takePicture();
+          imagePath = capturedFile.path;
+        } finally {
+          try {
+            await _cameraController!.setExposureMode(ExposureMode.auto);
+          } catch (_) {}
+          try {
+            await _cameraController!.setFocusMode(FocusMode.auto);
+          } catch (_) {}
+        }
       } else if (_mockImagePath != null) {
         imagePath = _mockImagePath!;
       } else {
@@ -312,7 +338,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
       }
 
       if (mounted) {
-        Navigator.of(context).push(
+        await Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => ResultScreen(
               imagePath: imagePath,
@@ -321,6 +347,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
             ),
           ),
         );
+        await _resetExposureAndFocus();
       }
     } catch (e) {
       if (mounted) {
@@ -468,6 +495,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                     );
                     return GestureDetector(
                       onTapUp: (details) => _onTapToFocus(details, canvasSize),
+                      onDoubleTap: _resetExposureAndFocus,
                       onPanStart: (details) => _onPanStart(details, canvasSize),
                       onPanUpdate: (details) =>
                           _onPanUpdate(details, canvasSize),

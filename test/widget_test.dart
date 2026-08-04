@@ -51,10 +51,16 @@ void main() {
     await tester.tap(torchToggleFinder);
     await tester.pump();
 
-    // Verify gesture detector handles tap-to-focus
+    // Verify gesture detector handles tap-to-focus and double-tap to reset focus/exposure
     final previewFinder = find.byType(GestureDetector).first;
     await tester.tap(previewFinder);
     await tester.pump();
+
+    // Double tap preview to reset focus/exposure
+    await tester.tap(previewFinder);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(previewFinder);
+    await tester.pumpAndSettle();
   });
 }
 
