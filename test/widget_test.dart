@@ -36,22 +36,48 @@ void main() {
     expect(find.text('Reference (Blue)'), findsOneWidget);
   });
 
-  testWidgets('LiveCameraScreen supports torch toggle and tap to focus', (WidgetTester tester) async {
+  testWidgets('LiveCameraScreen supports 3-state flash control, zoom pills, and EV exposure slider', (WidgetTester tester) async {
     await tester.runAsync(() async {
       await tester.pumpWidget(const MaterialApp(home: LiveCameraScreen()));
       await Future.delayed(const Duration(milliseconds: 200));
     });
     await tester.pump();
 
-    // Verify torch toggle button is rendered
+    // 1. Flash mode 3-state cycling
     final torchToggleFinder = find.byKey(const Key('torch_toggle'));
     expect(torchToggleFinder, findsOneWidget);
 
-    // Tap torch toggle
+    // Cycle Flash Off -> Flash Torch
     await tester.tap(torchToggleFinder);
     await tester.pump();
 
-    // Verify gesture detector handles tap-to-focus and double-tap to reset focus/exposure
+    // Cycle Flash Torch -> Flash Auto
+    await tester.tap(torchToggleFinder);
+    await tester.pump();
+
+    // Cycle Flash Auto -> Flash Off
+    await tester.tap(torchToggleFinder);
+    await tester.pump();
+
+    // 2. Zoom level indicator & Zoom pills (1x, 1.5x, 2x)
+    expect(find.text('1.5x'), findsWidgets); // Default zoom badge & chip
+    expect(find.text('1x'), findsOneWidget);
+    expect(find.text('2x'), findsOneWidget);
+
+    // Tap 2x zoom pill
+    await tester.tap(find.text('2x'));
+    await tester.pump();
+    expect(find.text('2.0x'), findsOneWidget); // Zoom badge updated to 2.0x
+
+    // 3. EV Exposure Slider toggle & interaction
+    final evButtonFinder = find.byIcon(Icons.exposure);
+    expect(evButtonFinder, findsOneWidget);
+    await tester.tap(evButtonFinder);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(Slider), findsOneWidget);
+
+    // 4. Verify preview gestures (tap-to-focus and double-tap reset)
     final previewFinder = find.byType(GestureDetector).first;
     await tester.tap(previewFinder);
     await tester.pump();
@@ -63,4 +89,3 @@ void main() {
     await tester.pumpAndSettle();
   });
 }
-

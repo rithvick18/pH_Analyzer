@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import '../services/ph_analyzer.dart';
 import 'result_screen.dart';
@@ -29,8 +29,21 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
   String? _errorMessage;
   String? _mockImagePath;
 
-  bool _isTorchOn = false;
+  FlashMode _flashMode = FlashMode.off;
   Offset? _focusTapPosition;
+
+  // Zoom management
+  double _currentZoom = 1.5;
+  double _minZoom = 1.0;
+  double _maxZoom = 8.0;
+  double _baseZoom = 1.5;
+
+  // Exposure management
+  double _currentExposureOffset = 0.0;
+  double _minExposureOffset = -2.0;
+  double _maxExposureOffset = 2.0;
+  double _exposureStepSize = 0.5;
+  bool _showExposureSlider = false;
 
   bool _useReferenceImage = false; // Toggle to switch feed to assets/Reference.jpeg
   bool _enableManualReference = false;
@@ -79,12 +92,24 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
 
           // Set default zoom level for macro distance (~1.5x)
           try {
-            final minZoom = await controller.getMinZoomLevel();
-            final maxZoom = await controller.getMaxZoomLevel();
-            final defaultZoom = 1.5.clamp(minZoom, maxZoom);
-            await controller.setZoomLevel(defaultZoom);
+            _minZoom = await controller.getMinZoomLevel();
+            _maxZoom = await controller.getMaxZoomLevel();
+            _currentZoom = 1.5.clamp(_minZoom, _maxZoom);
+            await controller.setZoomLevel(_currentZoom);
           } catch (_) {
             // Zoom level setting ignored if unsupported
+          }
+
+          // Fetch exposure offset boundaries
+          try {
+            _minExposureOffset = await controller.getMinExposureOffset();
+            _maxExposureOffset = await controller.getMaxExposureOffset();
+            _exposureStepSize = await controller.getExposureOffsetStepSize();
+            if (_exposureStepSize <= 0) _exposureStepSize = 0.5;
+            _currentExposureOffset = 0.0.clamp(_minExposureOffset, _maxExposureOffset);
+            await controller.setExposureOffset(_currentExposureOffset);
+          } catch (_) {
+            // Exposure setting ignored if unsupported
           }
 
           if (mounted) {
@@ -132,13 +157,10 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     }
   }
 
-  void _onPanStart(DragStartDetails details, Size canvasSize) {
+  void _onPanStartFromFocal(Offset focalPoint, Size canvasSize) {
     if (canvasSize.width <= 0 || canvasSize.height <= 0) return;
-    final normX = (details.localPosition.dx / canvasSize.width).clamp(0.0, 1.0);
-    final normY = (details.localPosition.dy / canvasSize.height).clamp(
-      0.0,
-      1.0,
-    );
+    final normX = (focalPoint.dx / canvasSize.width).clamp(0.0, 1.0);
+    final normY = (focalPoint.dy / canvasSize.height).clamp(0.0, 1.0);
     final normPoint = Offset(normX, normY);
 
     setState(() {
@@ -151,17 +173,14 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     });
   }
 
-  void _onPanUpdate(DragUpdateDetails details, Size canvasSize) {
+  void _onPanUpdateFromFocal(Offset focalPoint, Size canvasSize) {
     if (_dragStartNorm == null ||
         canvasSize.width <= 0 ||
         canvasSize.height <= 0) {
       return;
     }
-    final normX = (details.localPosition.dx / canvasSize.width).clamp(0.0, 1.0);
-    final normY = (details.localPosition.dy / canvasSize.height).clamp(
-      0.0,
-      1.0,
-    );
+    final normX = (focalPoint.dx / canvasSize.width).clamp(0.0, 1.0);
+    final normY = (focalPoint.dy / canvasSize.height).clamp(0.0, 1.0);
     final normPoint = Offset(normX, normY);
 
     setState(() {
@@ -173,10 +192,40 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     });
   }
 
-  void _onPanEnd(DragEndDetails details) {
+  void _onPanEnd() {
     setState(() {
       _dragStartNorm = null;
     });
+  }
+
+  Future<void> _setZoomLevel(double level) async {
+    final targetZoom = level.clamp(_minZoom, _maxZoom);
+    if ((targetZoom - _currentZoom).abs() > 0.01) {
+      HapticFeedback.lightImpact();
+      setState(() {
+        _currentZoom = targetZoom;
+      });
+      if (_cameraController != null && _cameraController!.value.isInitialized) {
+        try {
+          await _cameraController!.setZoomLevel(targetZoom);
+        } catch (_) {}
+      }
+    }
+  }
+
+  Future<void> _setExposureOffset(double offset) async {
+    final targetOffset = offset.clamp(_minExposureOffset, _maxExposureOffset);
+    if ((targetOffset - _currentExposureOffset).abs() > 0.01) {
+      HapticFeedback.lightImpact();
+      setState(() {
+        _currentExposureOffset = targetOffset;
+      });
+      if (_cameraController != null && _cameraController!.value.isInitialized) {
+        try {
+          await _cameraController!.setExposureOffset(targetOffset);
+        } catch (_) {}
+      }
+    }
   }
 
   Future<void> _resetCameraExposure() async {
@@ -202,6 +251,8 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     final normY = (details.localPosition.dy / canvasSize.height).clamp(0.0, 1.0);
     final point = Offset(normX, normY);
 
+    HapticFeedback.lightImpact();
+
     setState(() {
       _focusTapPosition = point;
     });
@@ -219,19 +270,66 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     }
   }
 
-  Future<void> _toggleTorch() async {
-    final newTorchState = !_isTorchOn;
+  Future<void> _cycleFlashMode() async {
+    FlashMode nextMode;
+    switch (_flashMode) {
+      case FlashMode.off:
+        nextMode = FlashMode.torch;
+        break;
+      case FlashMode.torch:
+        nextMode = FlashMode.auto;
+        break;
+      case FlashMode.auto:
+      default:
+        nextMode = FlashMode.off;
+        break;
+    }
+    HapticFeedback.lightImpact();
     if (_cameraController != null && _cameraController!.value.isInitialized) {
       try {
-        await _cameraController!.setFlashMode(
-          newTorchState ? FlashMode.torch : FlashMode.off,
-        );
+        await _cameraController!.setFlashMode(nextMode);
       } catch (_) {}
     }
     if (mounted) {
       setState(() {
-        _isTorchOn = newTorchState;
+        _flashMode = nextMode;
       });
+    }
+  }
+
+  IconData _getFlashIcon() {
+    switch (_flashMode) {
+      case FlashMode.torch:
+        return Icons.flash_on;
+      case FlashMode.auto:
+        return Icons.flash_auto;
+      case FlashMode.off:
+      default:
+        return Icons.flash_off;
+    }
+  }
+
+  String _getFlashTooltip() {
+    switch (_flashMode) {
+      case FlashMode.torch:
+        return 'Flash Torch';
+      case FlashMode.auto:
+        return 'Flash Auto';
+      case FlashMode.off:
+      default:
+        return 'Flash Off';
+    }
+  }
+
+  Color _getFlashIconColor(ThemeData theme) {
+    switch (_flashMode) {
+      case FlashMode.torch:
+        return Colors.amber;
+      case FlashMode.auto:
+        return Colors.amberAccent;
+      case FlashMode.off:
+      default:
+        return theme.colorScheme.onSurfaceVariant;
     }
   }
 
@@ -239,6 +337,8 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     if (_isCapturing) {
       return;
     }
+
+    HapticFeedback.mediumImpact();
 
     setState(() {
       _isCapturing = true;
@@ -419,12 +519,12 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
         actions: [
           IconButton(
             key: const Key('torch_toggle'),
-            tooltip: _isTorchOn ? 'Torch On' : 'Torch Off',
+            tooltip: _getFlashTooltip(),
             icon: Icon(
-              _isTorchOn ? Icons.flash_on : Icons.flash_off,
-              color: _isTorchOn ? Colors.amber : theme.colorScheme.onSurfaceVariant,
+              _getFlashIcon(),
+              color: _getFlashIconColor(theme),
             ),
-            onPressed: _toggleTorch,
+            onPressed: _cycleFlashMode,
           ),
           Padding(
             padding: const EdgeInsets.only(right: 4.0),
@@ -490,11 +590,26 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                     );
                     return GestureDetector(
                       onTapUp: (details) => _onTapToFocus(details, canvasSize),
-                      onDoubleTap: _resetCameraExposure,
-                      onPanStart: (details) => _onPanStart(details, canvasSize),
-                      onPanUpdate: (details) =>
-                          _onPanUpdate(details, canvasSize),
-                      onPanEnd: _onPanEnd,
+                      onDoubleTap: () {
+                        HapticFeedback.lightImpact();
+                        _resetCameraExposure();
+                      },
+                      onScaleStart: (details) {
+                        if (details.pointerCount > 1) {
+                          _baseZoom = _currentZoom;
+                        } else {
+                          _onPanStartFromFocal(details.localFocalPoint, canvasSize);
+                        }
+                      },
+                      onScaleUpdate: (details) {
+                        if (details.pointerCount > 1 || details.scale != 1.0) {
+                          final targetZoom = (_baseZoom * details.scale).clamp(_minZoom, _maxZoom);
+                          _setZoomLevel(targetZoom);
+                        } else {
+                          _onPanUpdateFromFocal(details.localFocalPoint, canvasSize);
+                        }
+                      },
+                      onScaleEnd: (_) => _onPanEnd(),
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
@@ -504,6 +619,32 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                               dyeNormRect: _dyeNormRect,
                               bgNormRect: _enableManualReference ? _bgNormRect : null,
                               focusTapNormPoint: _focusTapPosition,
+                            ),
+                          ),
+                          Positioned(
+                            top: 12,
+                            right: 12,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.6),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.white24,
+                                  width: 1,
+                                ),
+                              ),
+                              child: Text(
+                                '${_currentZoom.toStringAsFixed(1)}x',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ),
                           ),
                         ],
@@ -567,7 +708,6 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
       fit: BoxFit.cover,
     );
   }
-
 
   Widget _buildHelpBanner(ThemeData theme) {
     if (_enableManualReference) {
@@ -667,39 +807,138 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     );
   }
 
+  Widget _buildZoomPills(ThemeData theme) {
+    final zoomLevels = [1.0, 1.5, 2.0];
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: zoomLevels.map((zoom) {
+        final isSelected = (_currentZoom - zoom).abs() < 0.15;
+        final label = '${zoom == zoom.roundToDouble() ? zoom.toInt() : zoom}x';
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+          child: ChoiceChip(
+            label: Text(label),
+            selected: isSelected,
+            onSelected: (_) => _setZoomLevel(zoom),
+            selectedColor: theme.colorScheme.primaryContainer,
+            labelStyle: TextStyle(
+              fontSize: 12,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              color: isSelected
+                  ? theme.colorScheme.onPrimaryContainer
+                  : theme.colorScheme.onSurface,
+            ),
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildExposureControls(ThemeData theme) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            TextButton.icon(
+              onPressed: () {
+                setState(() {
+                  _showExposureSlider = !_showExposureSlider;
+                });
+              },
+              icon: Icon(
+                Icons.exposure,
+                size: 18,
+                color: _currentExposureOffset != 0.0
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+              label: Text(
+                'EV: ${_currentExposureOffset >= 0 ? '+' : ''}${_currentExposureOffset.toStringAsFixed(1)}',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: _currentExposureOffset != 0.0
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (_showExposureSlider)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              children: [
+                const Icon(Icons.exposure_neg_1, size: 16),
+                Expanded(
+                  child: Slider(
+                    value: _currentExposureOffset.clamp(
+                      _minExposureOffset,
+                      _maxExposureOffset,
+                    ),
+                    min: _minExposureOffset,
+                    max: _maxExposureOffset,
+                    divisions: (_maxExposureOffset - _minExposureOffset) > 0
+                        ? ((_maxExposureOffset - _minExposureOffset) /
+                                (_exposureStepSize > 0 ? _exposureStepSize : 0.5))
+                            .round()
+                        : 8,
+                    onChanged: (val) => _setExposureOffset(val),
+                  ),
+                ),
+                const Icon(Icons.exposure_plus_1, size: 16),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _buildControls(ThemeData theme) {
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: ElevatedButton.icon(
-          onPressed: _isCapturing ? null : _captureAndAnalyze,
-          icon: _isCapturing
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : const Icon(Icons.camera),
-          label: Text(
-            _isCapturing
-                ? 'Capturing & Analyzing...'
-                : 'Capture & Analyze pH',
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildZoomPills(theme),
+            const SizedBox(height: 4),
+            _buildExposureControls(theme),
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              onPressed: _isCapturing ? null : _captureAndAnalyze,
+              icon: _isCapturing
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.camera),
+              label: Text(
+                _isCapturing
+                    ? 'Capturing & Analyzing...'
+                    : 'Capture & Analyze pH',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size.fromHeight(52),
+                backgroundColor: theme.colorScheme.primary,
+                foregroundColor: theme.colorScheme.onPrimary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
             ),
-          ),
-          style: ElevatedButton.styleFrom(
-            minimumSize: const Size.fromHeight(56),
-            backgroundColor: theme.colorScheme.primary,
-            foregroundColor: theme.colorScheme.onPrimary,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
+          ],
         ),
       ),
     );
