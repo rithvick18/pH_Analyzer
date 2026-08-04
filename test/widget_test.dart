@@ -35,5 +35,26 @@ void main() {
     expect(find.text('Dye Pad (Red)'), findsOneWidget);
     expect(find.text('Reference (Blue)'), findsOneWidget);
   });
+
+  testWidgets('LiveCameraScreen supports torch toggle and tap to focus', (WidgetTester tester) async {
+    await tester.runAsync(() async {
+      await tester.pumpWidget(const MaterialApp(home: LiveCameraScreen()));
+      await Future.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pump();
+
+    // Verify torch toggle button is rendered
+    final torchToggleFinder = find.byKey(const Key('torch_toggle'));
+    expect(torchToggleFinder, findsOneWidget);
+
+    // Tap torch toggle
+    await tester.tap(torchToggleFinder);
+    await tester.pump();
+
+    // Verify gesture detector handles tap-to-focus
+    final previewFinder = find.byType(GestureDetector).first;
+    await tester.tap(previewFinder);
+    await tester.pump();
+  });
 }
 

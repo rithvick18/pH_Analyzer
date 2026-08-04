@@ -7,9 +7,17 @@ An offline-first Flutter application for precise, on-device pH prediction (0.00â
 ## Features
 
 - **100% Offline Edge Computing**: Performs color extraction, CIELAB delta calculations, and cubic spline interpolation locally without server calls.
-- **Robust ROI Extraction**: Drag-and-drop region selection for **Dye Pad (Red)** and **Reference Background (Blue)** with automatic outlier removal (trimming 15% extreme highlights/shadows).
-- **Live Camera & Gallery Support**: Supports real-time camera overlay box selection and gallery image picking with automatic EXIF orientation normalization.
-- **Local History & Export**: Save test results locally with notes, thumbnails, and RGB values, and export/share PDF/image analysis reports.
+- **Enhanced Live Camera Controls**:
+  - **Tap-to-Focus & Exposure**: Touch anywhere on the camera preview to lock focus and exposure at that point with a visual indicator.
+  - **Flash / Torch Toggle**: Quickly toggle the device torch on/off for consistent illumination in low-light environments.
+  - **Macro Zoom Preset**: Auto-initializes at an optimal macro zoom level (~1.5x) for close-up test strip capture.
+  - **Live & Reference Feed Toggle**: Switch between the real-time device camera feed and bundled static reference image (`assets/Reference.jpeg`) for testing or demonstration.
+- **Flexible Region of Interest (ROI) Extraction**:
+  - Drag-and-drop region selection for **Dye Pad (Red)** with customizable ROI size and positioning.
+  - **Optional Reference Background (Blue)** ROI toggle. When disabled, the analyzer defaults to a calibrated standard reference paper baseline (`[245, 245, 240]`).
+  - Automatic outlier removal by trimming 15% extreme highlights and shadows.
+- **Gallery & EXIF Support**: Supports gallery image picking with automatic EXIF orientation normalization.
+- **Local History & Report Export**: Save test results locally with notes, thumbnails, and RGB values, and export/share PDF or image analysis reports.
 
 ---
 
@@ -92,3 +100,4 @@ flutter test
 ```bash
 flutter run
 ```
+

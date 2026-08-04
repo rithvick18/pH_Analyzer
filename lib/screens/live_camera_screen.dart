@@ -29,6 +29,9 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
   String? _errorMessage;
   String? _mockImagePath;
 
+  bool _isTorchOn = false;
+  Offset? _focusTapPosition;
+
   bool _useReferenceImage = false; // Toggle to switch feed to assets/Reference.jpeg
   bool _enableManualReference = false;
   LiveSelectionMode _currentMode = LiveSelectionMode.dye;
@@ -47,6 +50,11 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
 
   @override
   void dispose() {
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
+      try {
+        _cameraController!.setFlashMode(FlashMode.off);
+      } catch (_) {}
+    }
     _cameraController?.dispose();
     super.dispose();
   }
@@ -68,6 +76,17 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
           );
 
           await controller.initialize();
+
+          // Set default zoom level for macro distance (~1.5x)
+          try {
+            final minZoom = await controller.getMinZoomLevel();
+            final maxZoom = await controller.getMaxZoomLevel();
+            final defaultZoom = 1.5.clamp(minZoom, maxZoom);
+            await controller.setZoomLevel(defaultZoom);
+          } catch (_) {
+            // Zoom level setting ignored if unsupported
+          }
+
           if (mounted) {
             setState(() {
               _cameraController = controller;
@@ -157,6 +176,46 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     setState(() {
       _dragStartNorm = null;
     });
+  }
+
+  Future<void> _onTapToFocus(TapUpDetails details, Size canvasSize) async {
+    if (canvasSize.width <= 0 || canvasSize.height <= 0) return;
+
+    final normX = (details.localPosition.dx / canvasSize.width).clamp(0.0, 1.0);
+    final normY = (details.localPosition.dy / canvasSize.height).clamp(0.0, 1.0);
+    final point = Offset(normX, normY);
+
+    setState(() {
+      _focusTapPosition = point;
+    });
+
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
+      try {
+        await _cameraController!.setExposurePoint(point);
+      } catch (_) {}
+      try {
+        await _cameraController!.setFocusPoint(point);
+      } catch (_) {}
+      try {
+        await _cameraController!.setFocusMode(FocusMode.auto);
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _toggleTorch() async {
+    final newTorchState = !_isTorchOn;
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
+      try {
+        await _cameraController!.setFlashMode(
+          newTorchState ? FlashMode.torch : FlashMode.off,
+        );
+      } catch (_) {}
+    }
+    if (mounted) {
+      setState(() {
+        _isTorchOn = newTorchState;
+      });
+    }
   }
 
   Future<void> _captureAndAnalyze() async {
@@ -336,6 +395,15 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
         title: const Text('Live Camera ROI Overlay'),
         centerTitle: false,
         actions: [
+          IconButton(
+            key: const Key('torch_toggle'),
+            tooltip: _isTorchOn ? 'Torch On' : 'Torch Off',
+            icon: Icon(
+              _isTorchOn ? Icons.flash_on : Icons.flash_off,
+              color: _isTorchOn ? Colors.amber : theme.colorScheme.onSurfaceVariant,
+            ),
+            onPressed: _toggleTorch,
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 4.0),
             child: Row(
@@ -399,6 +467,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                       constraints.maxHeight,
                     );
                     return GestureDetector(
+                      onTapUp: (details) => _onTapToFocus(details, canvasSize),
                       onPanStart: (details) => _onPanStart(details, canvasSize),
                       onPanUpdate: (details) =>
                           _onPanUpdate(details, canvasSize),
@@ -411,6 +480,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                             painter: _LiveROIPainter(
                               dyeNormRect: _dyeNormRect,
                               bgNormRect: _enableManualReference ? _bgNormRect : null,
+                              focusTapNormPoint: _focusTapPosition,
                             ),
                           ),
                         ],
@@ -616,10 +686,12 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
 class _LiveROIPainter extends CustomPainter {
   final Rect dyeNormRect;
   final Rect? bgNormRect;
+  final Offset? focusTapNormPoint;
 
   _LiveROIPainter({
     required this.dyeNormRect,
     this.bgNormRect,
+    this.focusTapNormPoint,
   });
 
   @override
@@ -662,6 +734,22 @@ class _LiveROIPainter extends CustomPainter {
       canvas.drawRect(bgRect, blueBorder);
       _drawBadge(canvas, 'Reference ROI', bgRect.topLeft, Colors.blueAccent);
     }
+
+    // Paint Tap-to-Focus visual indicator if user tapped screen
+    if (focusTapNormPoint != null) {
+      final tapX = focusTapNormPoint!.dx * size.width;
+      final tapY = focusTapNormPoint!.dy * size.height;
+      final focusBorder = Paint()
+        ..color = Colors.amberAccent
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0;
+      final focusCenter = Paint()
+        ..color = Colors.amberAccent
+        ..style = PaintingStyle.fill;
+
+      canvas.drawCircle(Offset(tapX, tapY), 20, focusBorder);
+      canvas.drawCircle(Offset(tapX, tapY), 3, focusCenter);
+    }
   }
 
   void _drawBadge(Canvas canvas, String text, Offset position, Color color) {
@@ -696,6 +784,7 @@ class _LiveROIPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _LiveROIPainter oldDelegate) {
     return oldDelegate.dyeNormRect != dyeNormRect ||
-        oldDelegate.bgNormRect != bgNormRect;
+        oldDelegate.bgNormRect != bgNormRect ||
+        oldDelegate.focusTapNormPoint != focusTapNormPoint;
   }
 }
