@@ -19,18 +19,16 @@ The app uses prebuilt calibration anchor points located in [`assets/calibration.
 
 ### Current Prebuilt Standard Values
 
-| pH Value | Classification | Dye RGB `[R, G, B]` | Background RGB `[R, G, B]` |
-| :--- | :--- | :--- | :--- |
-| **0.0** | Strongly Acidic | `[230, 30, 30]` (Deep Red) | `[250, 250, 245]` |
-| **1.5** | Strongly Acidic | `[240, 60, 40]` (Bright Red/Coral) | `[250, 250, 245]` |
-| **3.0** | Acidic | `[245, 120, 30]` (Orange) | `[250, 250, 245]` |
-| **5.0** | Acidic | `[245, 190, 30]` (Yellow-Orange) | `[250, 250, 245]` |
-| **6.0** | Slightly Acidic | `[180, 210, 50]` (Yellow-Green) | `[250, 250, 245]` |
-| **7.0** | Neutral | `[60, 175, 80]` (Green) | `[250, 250, 245]` |
-| **8.5** | Basic | `[40, 160, 170]` (Teal / Cyan) | `[250, 250, 245]` |
-| **10.0** | Basic | `[40, 90, 190]` (Blue) | `[250, 250, 245]` |
-| **12.0** | Strongly Basic | `[90, 40, 170]` (Indigo / Purple) | `[250, 250, 245]` |
-| **14.0** | Strongly Basic | `[110, 20, 140]` (Violet) | `[250, 250, 245]` |
+| Sample            | Median RGB          | Hex       | Approximate Appearance |
+| ----------------- | ------------------- | --------- | ---------------------- |
+| **NH₃**           | **(106, 100, 62)**  | `#6A643E` | Olive green            |
+| **KOH**           | **(56, 49, 27)**    | `#38311B` | Dark olive brown       |
+| **Soap solution** | **(87, 80, 56)**    | `#575038` | Olive brown            |
+| **Water**         | **(96, 87, 68)**    | `#605744` | Beige-brown            |
+| **Lemon**         | **(121, 91, 83)**   | `#795B53` | Salmon brown           |
+| **Acetic acid**   | **(155, 136, 131)** | `#9B8883` | Pale pink              |
+| **Dilute HCl**    | **(94, 47, 47)**    | `#5E2F2F` | Deep red               |
+| **HCl**           | **(86, 50, 44)**    | `#56322C` | Dark brick red         |
 
 ---
 
