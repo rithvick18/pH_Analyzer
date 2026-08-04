@@ -329,12 +329,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
       );
     }
 
-    final double aspectRatio = (!_useReferenceImage &&
-            _isCameraReady &&
-            _cameraController != null &&
-            _cameraController!.value.isInitialized)
-        ? _cameraController!.value.aspectRatio
-        : (1200.0 / 1600.0);
+    final double aspectRatio = _calculatePreviewAspectRatio();
 
     return Scaffold(
       appBar: AppBar(
@@ -411,16 +406,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          if (!_useReferenceImage &&
-                              _isCameraReady &&
-                              _cameraController != null &&
-                              _cameraController!.value.isInitialized)
-                            CameraPreview(_cameraController!)
-                          else
-                            Image.asset(
-                              'assets/Reference.jpeg',
-                              fit: BoxFit.cover,
-                            ),
+                          _buildPreviewFeed(),
                           CustomPaint(
                             painter: _LiveROIPainter(
                               dyeNormRect: _dyeNormRect,
@@ -440,6 +426,55 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
       ),
     );
   }
+
+  double _calculatePreviewAspectRatio() {
+    if (!_useReferenceImage &&
+        _isCameraReady &&
+        _cameraController != null &&
+        _cameraController!.value.isInitialized) {
+      final double rawRatio = _cameraController!.value.aspectRatio;
+      final bool isMobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+      if (isMobile) {
+        return rawRatio > 1.0 ? (1.0 / rawRatio) : rawRatio;
+      }
+      return rawRatio;
+    }
+    return 1200.0 / 1600.0;
+  }
+
+  Widget _buildPreviewFeed() {
+    if (!_useReferenceImage &&
+        _isCameraReady &&
+        _cameraController != null &&
+        _cameraController!.value.isInitialized) {
+      final camera = _cameraController!;
+      final Size previewSize = camera.value.previewSize ?? const Size(1920, 1080);
+      final bool isMobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+
+      final double nativeW = isMobile ? previewSize.height : previewSize.width;
+      final double nativeH = isMobile ? previewSize.width : previewSize.height;
+
+      return ClipRect(
+        child: OverflowBox(
+          alignment: Alignment.center,
+          child: FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: nativeW,
+              height: nativeH,
+              child: CameraPreview(camera),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Image.asset(
+      'assets/Reference.jpeg',
+      fit: BoxFit.cover,
+    );
+  }
+
 
   Widget _buildHelpBanner(ThemeData theme) {
     if (_enableManualReference) {
