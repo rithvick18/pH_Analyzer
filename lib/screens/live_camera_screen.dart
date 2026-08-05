@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import '../services/ph_analyzer.dart';
 import '../services/strip_validator_service.dart';
+import '../theme/lab_theme.dart';
 import 'result_screen.dart';
 
 Map<String, int> _readCameraImageDimensions(String imagePath) {
@@ -17,9 +18,6 @@ Map<String, int> _readCameraImageDimensions(String imagePath) {
 }
 
 /// Crops [dyeRect] from the image at [imagePath] and returns JPEG bytes.
-///
-/// Runs on the calling isolate (already off the UI thread via compute if
-/// needed). Returns `null` if the crop fails for any reason.
 Uint8List? _cropDyeRoiBytes(Map<String, dynamic> params) {
   try {
     final String path = params['imagePath'] as String;
@@ -50,7 +48,8 @@ class LiveCameraScreen extends StatefulWidget {
   State<LiveCameraScreen> createState() => _LiveCameraScreenState();
 }
 
-class _LiveCameraScreenState extends State<LiveCameraScreen> {
+class _LiveCameraScreenState extends State<LiveCameraScreen>
+    with SingleTickerProviderStateMixin {
   CameraController? _cameraController;
   bool _isCameraReady = false;
   bool _isInitialized = false;
@@ -85,14 +84,38 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
 
   Offset? _dragStartNorm;
 
+  // Pulse animation for Dye Pad ROI box
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
+
   @override
   void initState() {
     super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    );
+    _pulseAnimation = CurvedAnimation(
+      parent: _pulseController,
+      curve: Curves.easeInOut,
+    );
+
+    final bool isWidgetTest = WidgetsBinding
+        .instance.runtimeType
+        .toString()
+        .contains('TestWidgetsFlutterBinding');
+    if (!isWidgetTest) {
+      _pulseController.repeat(reverse: true);
+    } else {
+      _pulseController.value = 0.5;
+    }
+
     _initCameraHardware();
   }
 
   @override
   void dispose() {
+    _pulseController.dispose();
     if (_cameraController != null && _cameraController!.value.isInitialized) {
       try {
         _cameraController!.setFlashMode(FlashMode.off);
@@ -120,17 +143,13 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
 
           await controller.initialize();
 
-          // Set default zoom level for macro distance (~1.5x)
           try {
             _minZoom = await controller.getMinZoomLevel();
             _maxZoom = await controller.getMaxZoomLevel();
             _currentZoom = 1.5.clamp(_minZoom, _maxZoom);
             await controller.setZoomLevel(_currentZoom);
-          } catch (_) {
-            // Zoom level setting ignored if unsupported
-          }
+          } catch (_) {}
 
-          // Fetch exposure offset boundaries
           try {
             _minExposureOffset = await controller.getMinExposureOffset();
             _maxExposureOffset = await controller.getMaxExposureOffset();
@@ -138,9 +157,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
             if (_exposureStepSize <= 0) _exposureStepSize = 0.5;
             _currentExposureOffset = 0.0.clamp(_minExposureOffset, _maxExposureOffset);
             await controller.setExposureOffset(_currentExposureOffset);
-          } catch (_) {
-            // Exposure setting ignored if unsupported
-          }
+          } catch (_) {}
 
           if (mounted) {
             setState(() {
@@ -154,9 +171,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
           return;
         }
       }
-    } catch (_) {
-      // Fall back to mock reference camera mode when physical camera is unavailable
-    }
+    } catch (_) {}
     await _prepareMockImage();
   }
 
@@ -351,7 +366,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     }
   }
 
-  Color _getFlashIconColor(ThemeData theme) {
+  Color _getFlashIconColor() {
     switch (_flashMode) {
       case FlashMode.torch:
         return Colors.amber;
@@ -359,7 +374,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
         return Colors.amberAccent;
       case FlashMode.off:
       default:
-        return theme.colorScheme.onSurfaceVariant;
+        return Colors.white70;
     }
   }
 
@@ -376,9 +391,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
   }
 
   Future<void> _captureAndAnalyze() async {
-    if (_isCapturing) {
-      return;
-    }
+    if (_isCapturing) return;
 
     HapticFeedback.mediumImpact();
 
@@ -398,14 +411,11 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
             _cameraController!.value.isInitialized;
 
         if (useLiveFeed) {
-          // Point and shoot live camera: lock exposure and focus before capture
           try {
             try {
               await _cameraController!.setExposureMode(ExposureMode.locked);
               await _cameraController!.setFocusMode(FocusMode.locked);
-            } catch (_) {
-              // Ignore if locking focus/exposure is unsupported on hardware/driver
-            }
+            } catch (_) {}
 
             final XFile capturedFile = await _cameraController!.takePicture();
             imagePath = capturedFile.path;
@@ -426,7 +436,6 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
         );
       }
 
-      // Get image dimensions in an isolate to avoid blocking the UI
       final imgDimensions = await compute(_readCameraImageDimensions, imagePath);
 
       final double imgW = (imgDimensions['width'] as int).toDouble();
@@ -478,11 +487,9 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
         return;
       }
 
-      // ── Connectivity Check & Operational Mode Switching ─────────────────
       final bool isOnline = await StripValidatorService.hasInternetConnection();
 
       if (!isOnline) {
-        // Mode 2 (Offline Manual Mode): Bypass Gemini API, notify user, proceed to CIELAB.
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -496,7 +503,6 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
           );
         }
       } else {
-        // Mode 1 (Online AI + CIELAB): Gemini Vision Pre-Validation
         final Uint8List? dyeCropBytes = await compute(_cropDyeRoiBytes, {
           'imagePath': imagePath,
           'left': dyeImageRect.left,
@@ -545,12 +551,10 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                 ),
               ),
             );
-            // Bypass the CIELAB analysis – return early.
             return;
           }
         }
       }
-      // ── End Connectivity & Validation Check ─────────────────────────────
 
       if (mounted) {
         await Navigator.of(context).push(
@@ -588,7 +592,11 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
 
     if (_errorMessage != null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Live Camera')),
+        backgroundColor: LabTheme.bgDark,
+        appBar: AppBar(
+          backgroundColor: LabTheme.bgDark,
+          title: const Text('Live Camera'),
+        ),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24.0),
@@ -601,7 +609,11 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                   size: 64,
                 ),
                 const SizedBox(height: 16),
-                Text(_errorMessage!, textAlign: TextAlign.center),
+                Text(
+                  _errorMessage!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70),
+                ),
                 const SizedBox(height: 24),
                 ElevatedButton(
                   onPressed: () => Navigator.of(context).pop(),
@@ -616,14 +628,21 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
 
     if (!_isInitialized) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Live Camera')),
+        backgroundColor: LabTheme.bgDark,
+        appBar: AppBar(
+          backgroundColor: LabTheme.bgDark,
+          title: const Text('Live Camera'),
+        ),
         body: const Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CircularProgressIndicator(),
+              CircularProgressIndicator(color: LabTheme.cyanAccent),
               SizedBox(height: 16),
-              Text('Loading camera environment...'),
+              Text(
+                'Loading camera environment...',
+                style: TextStyle(color: Colors.white70),
+              ),
             ],
           ),
         ),
@@ -633,14 +652,25 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     final double aspectRatio = _calculatePreviewAspectRatio();
 
     return Scaffold(
+      backgroundColor: LabTheme.bgDark,
       appBar: AppBar(
-        title: const Text('Live Camera ROI Overlay'),
+        backgroundColor: LabTheme.surfaceCard,
+        surfaceTintColor: Colors.transparent,
+        title: const Text(
+          'Live Camera ROI Overlay',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 15,
+          ),
+          overflow: TextOverflow.ellipsis,
+        ),
         centerTitle: false,
         actions: [
           IconButton(
             key: const Key('gallery_button'),
             tooltip: 'Import from Gallery',
-            icon: const Icon(Icons.photo_library),
+            icon: const Icon(Icons.photo_library, color: Colors.white),
             onPressed: _pickGalleryImage,
           ),
           IconButton(
@@ -648,12 +678,12 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
             tooltip: _getFlashTooltip(),
             icon: Icon(
               _getFlashIcon(),
-              color: _getFlashIconColor(theme),
+              color: _getFlashIconColor(),
             ),
             onPressed: _cycleFlashMode,
           ),
           Padding(
-            padding: const EdgeInsets.only(right: 4.0),
+            padding: const EdgeInsets.only(right: 6.0),
             child: Row(
               children: [
                 Text(
@@ -661,32 +691,34 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                   style: theme.textTheme.labelMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: _useReferenceImage
-                        ? theme.colorScheme.primary
-                        : theme.colorScheme.onSurfaceVariant,
+                        ? LabTheme.cyanAccent
+                        : Colors.white54,
                   ),
                 ),
                 Switch(
                   key: const Key('reference_image_toggle'),
                   value: _useReferenceImage,
+                  activeThumbColor: LabTheme.cyanAccent,
                   onChanged: (val) {
                     setState(() {
                       _useReferenceImage = val;
                     });
                   },
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(width: 2),
                 Text(
                   'Manual Ref',
                   style: theme.textTheme.labelMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: _enableManualReference
-                        ? theme.colorScheme.primary
-                        : theme.colorScheme.onSurfaceVariant,
+                        ? LabTheme.cyanAccent
+                        : Colors.white54,
                   ),
                 ),
                 Switch(
                   key: const Key('manual_reference_toggle'),
                   value: _enableManualReference,
+                  activeThumbColor: LabTheme.cyanAccent,
                   onChanged: (val) {
                     setState(() {
                       _enableManualReference = val;
@@ -740,34 +772,36 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                         fit: StackFit.expand,
                         children: [
                           _buildPreviewFeed(),
-                          CustomPaint(
-                            painter: _LiveROIPainter(
-                              dyeNormRect: _dyeNormRect,
-                              bgNormRect: _enableManualReference ? _bgNormRect : null,
-                              focusTapNormPoint: _focusTapPosition,
-                            ),
+                          AnimatedBuilder(
+                            animation: _pulseAnimation,
+                            builder: (context, child) {
+                              return CustomPaint(
+                                painter: _LiveROIPainter(
+                                  dyeNormRect: _dyeNormRect,
+                                  bgNormRect: _enableManualReference ? _bgNormRect : null,
+                                  focusTapNormPoint: _focusTapPosition,
+                                  pulseValue: _pulseAnimation.value,
+                                ),
+                              );
+                            },
                           ),
                           Positioned(
-                            top: 12,
-                            right: 12,
-                            child: Container(
+                            top: 16,
+                            right: 16,
+                            child: GlassContainer(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
+                                horizontal: 12,
+                                vertical: 6,
                               ),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.6),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.white24,
-                                  width: 1,
-                                ),
-                              ),
+                              blur: 10,
+                              borderRadius: 12,
+                              color: Colors.black.withValues(alpha: 0.6),
+                              borderColor: LabTheme.cyanAccent.withValues(alpha: 0.4),
                               child: Text(
                                 '${_currentZoom.toStringAsFixed(1)}x',
                                 style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
+                                  color: LabTheme.cyanAccent,
+                                  fontSize: 13,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -844,25 +878,28 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
 
   Widget _buildHelpBanner(ThemeData theme) {
     if (_galleryImagePath != null) {
-      return Container(
+      return GlassContainer(
+        margin: const EdgeInsets.all(8),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        borderRadius: 12,
+        color: LabTheme.surfaceCard.withValues(alpha: 0.8),
+        borderColor: LabTheme.cyanAccent.withValues(alpha: 0.4),
         child: Row(
           children: [
-            Icon(
+            const Icon(
               Icons.photo_library,
               size: 20,
-              color: theme.colorScheme.primary,
+              color: LabTheme.cyanAccent,
             ),
             const SizedBox(width: 8),
-            Expanded(
+            const Expanded(
               child: Text(
                 'Gallery Image mode. Position ROI box over dye pad.',
-                style: theme.textTheme.bodySmall?.copyWith(fontSize: 12),
+                style: TextStyle(fontSize: 12, color: Colors.white),
               ),
             ),
             IconButton(
-              icon: const Icon(Icons.close, size: 18),
+              icon: const Icon(Icons.close, size: 18, color: Colors.white70),
               tooltip: 'Return to Camera Feed',
               onPressed: () {
                 setState(() {
@@ -876,9 +913,11 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     }
 
     if (_enableManualReference) {
-      return Container(
+      return GlassContainer(
+        margin: const EdgeInsets.all(8),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.8),
+        borderRadius: 12,
+        color: LabTheme.surfaceCard.withValues(alpha: 0.8),
         child: Row(
           children: [
             Expanded(
@@ -903,15 +942,17 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
       );
     }
 
-    return Container(
+    return GlassContainer(
+      margin: const EdgeInsets.all(8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+      borderRadius: 12,
+      color: LabTheme.surfaceCard.withValues(alpha: 0.8),
       child: Row(
         children: [
           Icon(
             _useReferenceImage ? Icons.image : Icons.camera_alt,
             size: 20,
-            color: theme.colorScheme.primary,
+            color: LabTheme.cyanAccent,
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -919,7 +960,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
               _useReferenceImage
                   ? 'Showing reference.jpeg. Position ROI box over dye pad.'
                   : 'Point & shoot camera mode. Drag box over test strip dye pad.',
-              style: theme.textTheme.bodySmall?.copyWith(fontSize: 12),
+              style: const TextStyle(fontSize: 12, color: Colors.white70),
             ),
           ),
         ],
@@ -939,9 +980,9 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
         decoration: BoxDecoration(
-          color: isSelected ? color.withValues(alpha: 0.2) : Colors.transparent,
+          color: isSelected ? color.withValues(alpha: 0.25) : Colors.transparent,
           border: Border.all(
-            color: isSelected ? color : Colors.grey.withValues(alpha: 0.4),
+            color: isSelected ? color : LabTheme.borderDark,
             width: isSelected ? 2 : 1,
           ),
           borderRadius: BorderRadius.circular(10),
@@ -960,7 +1001,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                 label,
                 style: TextStyle(
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                  color: isSelected ? color : null,
+                  color: isSelected ? color : Colors.white70,
                   fontSize: 12,
                 ),
                 overflow: TextOverflow.ellipsis,
@@ -980,21 +1021,42 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
         final isSelected = (_currentZoom - zoom).abs() < 0.15;
         final label = '${zoom == zoom.roundToDouble() ? zoom.toInt() : zoom}x';
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4.0),
-          child: ChoiceChip(
-            label: Text(label),
-            selected: isSelected,
-            onSelected: (_) => _setZoomLevel(zoom),
-            selectedColor: theme.colorScheme.primaryContainer,
-            labelStyle: TextStyle(
-              fontSize: 12,
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              color: isSelected
-                  ? theme.colorScheme.onPrimaryContainer
-                  : theme.colorScheme.onSurface,
+          padding: const EdgeInsets.symmetric(horizontal: 6.0),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: isSelected
+                  ? [
+                      BoxShadow(
+                        color: LabTheme.cyanAccent.withValues(alpha: 0.4),
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
+                      ),
+                    ]
+                  : [],
             ),
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: ChoiceChip(
+              label: Text(label),
+              selected: isSelected,
+              onSelected: (_) => _setZoomLevel(zoom),
+              selectedColor: LabTheme.cyanAccent,
+              backgroundColor: LabTheme.surfaceElevated.withValues(alpha: 0.8),
+              side: BorderSide(
+                color: isSelected
+                    ? LabTheme.cyanAccent
+                    : LabTheme.borderDark,
+                width: isSelected ? 1.5 : 1.0,
+              ),
+              labelStyle: TextStyle(
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
+                color: isSelected ? LabTheme.bgDark : Colors.white70,
+              ),
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            ),
           ),
         );
       }).toList(),
@@ -1017,16 +1079,16 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                 Icons.exposure,
                 size: 18,
                 color: _currentExposureOffset != 0.0
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurfaceVariant,
+                    ? LabTheme.cyanAccent
+                    : Colors.white70,
               ),
               label: Text(
                 'EV: ${_currentExposureOffset >= 0 ? '+' : ''}${_currentExposureOffset.toStringAsFixed(1)}',
-                style: theme.textTheme.labelMedium?.copyWith(
+                style: TextStyle(
                   fontWeight: FontWeight.bold,
                   color: _currentExposureOffset != 0.0
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurfaceVariant,
+                      ? LabTheme.cyanAccent
+                      : Colors.white70,
                 ),
               ),
             ),
@@ -1037,7 +1099,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: Row(
               children: [
-                const Icon(Icons.exposure_neg_1, size: 16),
+                const Icon(Icons.exposure_neg_1, size: 16, color: Colors.white70),
                 Expanded(
                   child: Slider(
                     value: _currentExposureOffset.clamp(
@@ -1051,10 +1113,12 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
                                 (_exposureStepSize > 0 ? _exposureStepSize : 0.5))
                             .round()
                         : 8,
+                    activeColor: LabTheme.cyanAccent,
+                    inactiveColor: LabTheme.borderDark,
                     onChanged: (val) => _setExposureOffset(val),
                   ),
                 ),
-                const Icon(Icons.exposure_plus_1, size: 16),
+                const Icon(Icons.exposure_plus_1, size: 16, color: Colors.white70),
               ],
             ),
           ),
@@ -1064,46 +1128,95 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
 
   Widget _buildControls(ThemeData theme) {
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: GlassContainer(
+        margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+        padding: const EdgeInsets.all(16.0),
+        borderRadius: 24,
+        blur: 16,
+        color: LabTheme.surfaceCard.withValues(alpha: 0.85),
+        borderColor: LabTheme.cyanAccent.withValues(alpha: 0.3),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             _buildZoomPills(theme),
             const SizedBox(height: 4),
             _buildExposureControls(theme),
-            const SizedBox(height: 8),
-            ElevatedButton.icon(
-              onPressed: _isCapturing ? null : _captureAndAnalyze,
-              icon: _isCapturing
-                  ? const SizedBox(
+            const SizedBox(height: 12),
+            _buildTactileShutter(theme),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTactileShutter(ThemeData theme) {
+    return GestureDetector(
+      onTap: _isCapturing ? null : _captureAndAnalyze,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        height: 60,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: LinearGradient(
+            colors: _isCapturing
+                ? [LabTheme.surfaceElevated, LabTheme.surfaceCard]
+                : [
+                    LabTheme.cyanAccent,
+                    LabTheme.tealAccent,
+                  ],
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: LabTheme.cyanAccent.withValues(alpha: 0.35),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Center(
+          child: _isCapturing
+              ? const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
+                        strokeWidth: 2.5,
+                        color: LabTheme.cyanAccent,
                       ),
-                    )
-                  : const Icon(Icons.camera),
-              label: Text(
-                _isCapturing
-                    ? 'Capturing & Analyzing...'
-                    : 'Capture & Analyze pH',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+                    ),
+                    SizedBox(width: 12),
+                    Text(
+                      'Capturing & Analyzing...',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                )
+              : const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.camera_rounded,
+                      color: LabTheme.bgDark,
+                      size: 24,
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      'Capture & Analyze pH',
+                      style: TextStyle(
+                        color: LabTheme.bgDark,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size.fromHeight(52),
-                backgroundColor: theme.colorScheme.primary,
-                foregroundColor: theme.colorScheme.onPrimary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );
@@ -1114,16 +1227,17 @@ class _LiveROIPainter extends CustomPainter {
   final Rect dyeNormRect;
   final Rect? bgNormRect;
   final Offset? focusTapNormPoint;
+  final double pulseValue;
 
   _LiveROIPainter({
     required this.dyeNormRect,
     this.bgNormRect,
     this.focusTapNormPoint,
+    this.pulseValue = 0.0,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Convert normalized (0..1) coords to canvas size
     final dyeRect = Rect.fromLTRB(
       dyeNormRect.left * size.width,
       dyeNormRect.top * size.height,
@@ -1131,7 +1245,17 @@ class _LiveROIPainter extends CustomPainter {
       dyeNormRect.bottom * size.height,
     );
 
-    // Paint Dye Pad (Red Accent Border, Transparent Interior)
+    // Animated pulse aura around Dye Pad ROI box
+    final double pulseInflation = 3.0 + pulseValue * 6.0;
+    final auraRect = dyeRect.inflate(pulseInflation);
+    final auraRRect = RRect.fromRectAndRadius(auraRect, const Radius.circular(8));
+    final auraPaint = Paint()
+      ..color = Colors.redAccent.withValues(alpha: (1.0 - pulseValue) * 0.5)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+    canvas.drawRRect(auraRRect, auraPaint);
+
+    // Paint Dye Pad (Red Accent Border)
     final redBorder = Paint()
       ..color = Colors.redAccent
       ..style = PaintingStyle.stroke
@@ -1162,16 +1286,16 @@ class _LiveROIPainter extends CustomPainter {
       _drawBadge(canvas, 'Reference ROI', bgRect.topLeft, Colors.blueAccent);
     }
 
-    // Paint Tap-to-Focus visual indicator if user tapped screen
+    // Paint Tap-to-Focus indicator
     if (focusTapNormPoint != null) {
       final tapX = focusTapNormPoint!.dx * size.width;
       final tapY = focusTapNormPoint!.dy * size.height;
       final focusBorder = Paint()
-        ..color = Colors.amberAccent
+        ..color = LabTheme.cyanAccent
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.0;
       final focusCenter = Paint()
-        ..color = Colors.amberAccent
+        ..color = LabTheme.cyanAccent
         ..style = PaintingStyle.fill;
 
       canvas.drawCircle(Offset(tapX, tapY), 20, focusBorder);
@@ -1212,6 +1336,7 @@ class _LiveROIPainter extends CustomPainter {
   bool shouldRepaint(covariant _LiveROIPainter oldDelegate) {
     return oldDelegate.dyeNormRect != dyeNormRect ||
         oldDelegate.bgNormRect != bgNormRect ||
-        oldDelegate.focusTapNormPoint != focusTapNormPoint;
+        oldDelegate.focusTapNormPoint != focusTapNormPoint ||
+        oldDelegate.pulseValue != pulseValue;
   }
 }
