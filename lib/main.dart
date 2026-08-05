@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -78,6 +79,14 @@ class _AppInitializerState extends State<AppInitializer> {
     try {
       // Platform-specific initialization
       debugPrint('Starting app initialization on $defaultTargetPlatform');
+
+      // Load environment variables
+      try {
+        await dotenv.load(fileName: ".env");
+        debugPrint('.env loaded successfully');
+      } catch (e) {
+        debugPrint('.env load failed (non-critical): $e');
+      }
 
       // Initialize Hive database with better error handling
       try {

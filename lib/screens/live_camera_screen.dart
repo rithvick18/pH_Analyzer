@@ -3,6 +3,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -505,10 +506,11 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
         });
 
         if (dyeCropBytes != null) {
-          const String geminiApiKey = String.fromEnvironment(
-            'GEMINI_API_KEY',
-            defaultValue: '',
-          );
+          final String geminiApiKey = dotenv.env['GEMINI_API_KEY'] ??
+              const String.fromEnvironment(
+                'GEMINI_API_KEY',
+                defaultValue: '',
+              );
 
           final StripValidationResult validation =
               await StripValidatorService.validate(
