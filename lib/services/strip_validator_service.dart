@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
@@ -20,6 +21,16 @@ class StripValidationResult {
 /// response causes the service to return [StripValidationResult.isValid] == true
 /// so the normal CIELAB pipeline can still run (graceful degradation).
 class StripValidatorService {
+  /// Checks whether an active internet connection is present via network ping.
+  static Future<bool> hasInternetConnection() async {
+    try {
+      final result = await InternetAddress.lookup('example.com')
+          .timeout(const Duration(seconds: 3));
+      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
   /// System instruction sent to the model alongside the image.
   ///
   /// Acts as an expert laboratory colorimetry inspector: it defines acceptance

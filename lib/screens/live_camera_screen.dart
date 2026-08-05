@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
+import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import '../services/ph_analyzer.dart';
 import '../services/strip_validator_service.dart';
@@ -55,6 +56,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
   bool _isCapturing = false;
   String? _errorMessage;
   String? _mockImagePath;
+  String? _galleryImagePath;
 
   FlashMode _flashMode = FlashMode.off;
   Offset? _focusTapPosition;
@@ -360,6 +362,18 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     }
   }
 
+  Future<void> _pickGalleryImage() async {
+    HapticFeedback.lightImpact();
+    final picker = ImagePicker();
+    final XFile? pickedFile =
+        await picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null && mounted) {
+      setState(() {
+        _galleryImagePath = pickedFile.path;
+      });
+    }
+  }
+
   Future<void> _captureAndAnalyze() async {
     if (_isCapturing) {
       return;
@@ -374,30 +388,34 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
     try {
       String imagePath;
 
-      final bool useLiveFeed = !_useReferenceImage &&
-          _isCameraReady &&
-          _cameraController != null &&
-          _cameraController!.value.isInitialized;
-
-      if (useLiveFeed) {
-        // Point and shoot live camera: lock exposure and focus before capture
-        try {
-          try {
-            await _cameraController!.setExposureMode(ExposureMode.locked);
-            await _cameraController!.setFocusMode(FocusMode.locked);
-          } catch (_) {
-            // Ignore if locking focus/exposure is unsupported on hardware/driver
-          }
-
-          final XFile capturedFile = await _cameraController!.takePicture();
-          imagePath = capturedFile.path;
-        } finally {
-          await _resetCameraExposure();
-        }
-      } else if (_mockImagePath != null) {
-        imagePath = _mockImagePath!;
+      if (_galleryImagePath != null) {
+        imagePath = _galleryImagePath!;
       } else {
-        throw Exception('Camera feed / Reference image is not ready.');
+        final bool useLiveFeed = !_useReferenceImage &&
+            _isCameraReady &&
+            _cameraController != null &&
+            _cameraController!.value.isInitialized;
+
+        if (useLiveFeed) {
+          // Point and shoot live camera: lock exposure and focus before capture
+          try {
+            try {
+              await _cameraController!.setExposureMode(ExposureMode.locked);
+              await _cameraController!.setFocusMode(FocusMode.locked);
+            } catch (_) {
+              // Ignore if locking focus/exposure is unsupported on hardware/driver
+            }
+
+            final XFile capturedFile = await _cameraController!.takePicture();
+            imagePath = capturedFile.path;
+          } finally {
+            await _resetCameraExposure();
+          }
+        } else if (_mockImagePath != null) {
+          imagePath = _mockImagePath!;
+        } else {
+          throw Exception('Camera feed / Reference image is not ready.');
+        }
       }
 
       final fileHandle = File(imagePath);
@@ -459,64 +477,78 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
         return;
       }
 
-      // ── Gemini Vision Pre-Validation ──────────────────────────────────────
-      // Crop the dye-pad ROI to JPEG bytes in a compute isolate, then send to
-      // Gemini 1.5 Flash for a quick sanity check. The call is fail-open: any
-      // network issue or missing API key lets the CIELAB pipeline proceed.
-      final Uint8List? dyeCropBytes = await compute(_cropDyeRoiBytes, {
-        'imagePath': imagePath,
-        'left': dyeImageRect.left,
-        'top': dyeImageRect.top,
-        'width': dyeImageRect.width,
-        'height': dyeImageRect.height,
-      });
+      // ── Connectivity Check & Operational Mode Switching ─────────────────
+      final bool isOnline = await StripValidatorService.hasInternetConnection();
 
-      if (dyeCropBytes != null) {
-        // Replace the empty string below with your Google AI Studio API key.
-        // Tip: load from a secure store or flutter_dotenv in production.
-        const String geminiApiKey = String.fromEnvironment(
-          'GEMINI_API_KEY',
-          defaultValue: '',
-        );
-
-        final StripValidationResult validation =
-            await StripValidatorService.validate(
-          imageBytes: dyeCropBytes,
-          apiKey: geminiApiKey,
-        );
-
-        if (!validation.isValid && mounted) {
+      if (!isOnline) {
+        // Mode 2 (Offline Manual Mode): Bypass Gemini API, notify user, proceed to CIELAB.
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Row(
-                children: [
-                  const Icon(
-                    Icons.warning_amber_rounded,
-                    color: Colors.white,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'No test strip detected in ROI box: ${validation.reason}',
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                  ),
-                ],
+              content: const Text(
+                'No internet available — using CIELAB in manual mode',
               ),
-              backgroundColor: const Color(0xFFD84315),
+              backgroundColor: Colors.orange.shade800,
+              duration: const Duration(seconds: 4),
               behavior: SnackBarBehavior.floating,
-              duration: const Duration(seconds: 5),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
             ),
           );
-          // Bypass the CIELAB analysis – return early.
-          return;
+        }
+      } else {
+        // Mode 1 (Online AI + CIELAB): Gemini Vision Pre-Validation
+        final Uint8List? dyeCropBytes = await compute(_cropDyeRoiBytes, {
+          'imagePath': imagePath,
+          'left': dyeImageRect.left,
+          'top': dyeImageRect.top,
+          'width': dyeImageRect.width,
+          'height': dyeImageRect.height,
+        });
+
+        if (dyeCropBytes != null) {
+          const String geminiApiKey = String.fromEnvironment(
+            'GEMINI_API_KEY',
+            defaultValue: '',
+          );
+
+          final StripValidationResult validation =
+              await StripValidatorService.validate(
+            imageBytes: dyeCropBytes,
+            apiKey: geminiApiKey,
+          );
+
+          if (!validation.isValid && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'No test strip detected in ROI box: ${validation.reason}',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+                backgroundColor: const Color(0xFFD84315),
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 5),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            );
+            // Bypass the CIELAB analysis – return early.
+            return;
+          }
         }
       }
-      // ── End Gemini Pre-Validation ─────────────────────────────────────────
+      // ── End Connectivity & Validation Check ─────────────────────────────
 
       if (mounted) {
         await Navigator.of(context).push(
@@ -603,6 +635,12 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
         title: const Text('Live Camera ROI Overlay'),
         centerTitle: false,
         actions: [
+          IconButton(
+            key: const Key('gallery_button'),
+            tooltip: 'Import from Gallery',
+            icon: const Icon(Icons.photo_library),
+            onPressed: _pickGalleryImage,
+          ),
           IconButton(
             key: const Key('torch_toggle'),
             tooltip: _getFlashTooltip(),
@@ -763,6 +801,13 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
   }
 
   Widget _buildPreviewFeed() {
+    if (_galleryImagePath != null) {
+      return Image.file(
+        File(_galleryImagePath!),
+        fit: BoxFit.cover,
+      );
+    }
+
     if (!_useReferenceImage &&
         _isCameraReady &&
         _cameraController != null &&
@@ -796,6 +841,38 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
   }
 
   Widget _buildHelpBanner(ThemeData theme) {
+    if (_galleryImagePath != null) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        child: Row(
+          children: [
+            Icon(
+              Icons.photo_library,
+              size: 20,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Gallery Image mode. Position ROI box over dye pad.',
+                style: theme.textTheme.bodySmall?.copyWith(fontSize: 12),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              tooltip: 'Return to Camera Feed',
+              onPressed: () {
+                setState(() {
+                  _galleryImagePath = null;
+                });
+              },
+            ),
+          ],
+        ),
+      );
+    }
+
     if (_enableManualReference) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

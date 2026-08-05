@@ -19,6 +19,7 @@ void main() {
 
     expect(find.text('Ref Image'), findsOneWidget);
     expect(find.text('Manual Ref'), findsOneWidget);
+    expect(find.byKey(const Key('gallery_button')), findsOneWidget);
 
     final refImageSwitchFinder = find.byKey(const Key('reference_image_toggle'));
     expect(refImageSwitchFinder, findsOneWidget);
