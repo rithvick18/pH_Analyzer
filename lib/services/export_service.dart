@@ -255,7 +255,7 @@ class ExportService {
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
                     pw.Text(
-                      'Generated locally on-device via pH Analyzer',
+                      'Generated locally on-device via pH_analyzer',
                       style: const pw.TextStyle(
                         fontSize: 9,
                         color: PdfColors.grey600,

@@ -34,7 +34,7 @@ class PHAnalyzerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'pH Analyzer Edge Computing',
+      title: 'pH_analyzer',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,

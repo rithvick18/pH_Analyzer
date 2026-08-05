@@ -13,7 +13,7 @@ class LoadingScreen extends StatelessWidget {
             const CircularProgressIndicator(),
             const SizedBox(height: 24),
             Text(
-              'Initializing pH Analyzer...',
+              'Initializing pH_analyzer...',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
