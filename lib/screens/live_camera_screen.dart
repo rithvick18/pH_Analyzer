@@ -3,13 +3,40 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 import '../services/ph_analyzer.dart';
+import '../services/strip_validator_service.dart';
 import 'result_screen.dart';
 
 Map<String, int> _readCameraImageDimensions(String imagePath) {
   final image = PHAnalyzer.loadAndNormalizeImage(imagePath);
   return {'width': image.width, 'height': image.height};
+}
+
+/// Crops [dyeRect] from the image at [imagePath] and returns JPEG bytes.
+///
+/// Runs on the calling isolate (already off the UI thread via compute if
+/// needed). Returns `null` if the crop fails for any reason.
+Uint8List? _cropDyeRoiBytes(Map<String, dynamic> params) {
+  try {
+    final String path = params['imagePath'] as String;
+    final double left = (params['left'] as num).toDouble();
+    final double top = (params['top'] as num).toDouble();
+    final double width = (params['width'] as num).toDouble();
+    final double height = (params['height'] as num).toDouble();
+
+    final fullImage = PHAnalyzer.loadAndNormalizeImage(path);
+    final int x = left.floor().clamp(0, fullImage.width - 1);
+    final int y = top.floor().clamp(0, fullImage.height - 1);
+    final int w = width.ceil().clamp(1, fullImage.width - x);
+    final int h = height.ceil().clamp(1, fullImage.height - y);
+
+    final crop = img.copyCrop(fullImage, x: x, y: y, width: w, height: h);
+    return Uint8List.fromList(img.encodeJpg(crop, quality: 85));
+  } catch (_) {
+    return null;
+  }
 }
 
 enum LiveSelectionMode { dye, reference }
@@ -431,6 +458,65 @@ class _LiveCameraScreenState extends State<LiveCameraScreen> {
         }
         return;
       }
+
+      // ── Gemini Vision Pre-Validation ──────────────────────────────────────
+      // Crop the dye-pad ROI to JPEG bytes in a compute isolate, then send to
+      // Gemini 1.5 Flash for a quick sanity check. The call is fail-open: any
+      // network issue or missing API key lets the CIELAB pipeline proceed.
+      final Uint8List? dyeCropBytes = await compute(_cropDyeRoiBytes, {
+        'imagePath': imagePath,
+        'left': dyeImageRect.left,
+        'top': dyeImageRect.top,
+        'width': dyeImageRect.width,
+        'height': dyeImageRect.height,
+      });
+
+      if (dyeCropBytes != null) {
+        // Replace the empty string below with your Google AI Studio API key.
+        // Tip: load from a secure store or flutter_dotenv in production.
+        const String geminiApiKey = String.fromEnvironment(
+          'GEMINI_API_KEY',
+          defaultValue: '',
+        );
+
+        final StripValidationResult validation =
+            await StripValidatorService.validate(
+          imageBytes: dyeCropBytes,
+          apiKey: geminiApiKey,
+        );
+
+        if (!validation.isValid && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'No test strip detected in ROI box: ${validation.reason}',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: const Color(0xFFD84315),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 5),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          );
+          // Bypass the CIELAB analysis – return early.
+          return;
+        }
+      }
+      // ── End Gemini Pre-Validation ─────────────────────────────────────────
 
       if (mounted) {
         await Navigator.of(context).push(
