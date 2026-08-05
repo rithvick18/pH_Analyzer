@@ -13,7 +13,7 @@ class StripValidationResult {
   const StripValidationResult({required this.isValid, required this.reason});
 }
 
-/// Sends a cropped ROI image to Gemini 1.5 Flash and asks whether the frame
+/// Sends a cropped ROI image to Gemini 3.5 Flash Lite and asks whether the frame
 /// contains a valid colorimetric pH test strip or dye pad.
 ///
 /// Fail-open design: any network error, missing API key, or malformed JSON
@@ -21,13 +21,25 @@ class StripValidationResult {
 /// so the normal CIELAB pipeline can still run (graceful degradation).
 class StripValidatorService {
   /// System instruction sent to the model alongside the image.
+  ///
+  /// Acts as an expert laboratory colorimetry inspector: it defines acceptance
+  /// criteria, rejection cases, and enforces a strict JSON-only response schema.
   static const String _systemInstruction =
-      'Analyze this image. Is there a valid colorimetric pH test strip or dye '
-      'pad visible? Reply ONLY in valid JSON format: '
-      '{"isValid": true/false, "reason": "brief explanation"}';
+      'You are an expert laboratory vision model specializing in chemical colorimetry. '
+      'Your task is to analyze close-up crop images from a smartphone camera and '
+      'determine if the image contains a valid colorimetric pH test strip, indicator '
+      'paper, or synthetic dye pad. '
+      'Evaluation Criteria: '
+      'Mark isValid true ONLY if you see an indicator dye pad, test strip matrix, or '
+      'colorimetric paper designed for optical fluid/pH testing. '
+      'Mark isValid false if the image shows plain paper without a dye pad, human '
+      'skin/fingers, household objects, extreme glare, or solid background texture. '
+      'Keep reason under 15 words, explaining clearly why the frame was accepted or rejected. '
+      'Respond ONLY with a valid JSON object: {"isValid": true/false, "reason": "brief explanation"}. '
+      'Do not include markdown, code fences, or any text outside the JSON object.';
 
   /// The Gemini model identifier to use for vision inference.
-  static const String _modelId = 'gemini-1.5-flash';
+  static const String _modelId = 'gemini-3.5-flash-lite';
 
   /// Validates [imageBytes] (JPEG / PNG bytes of the dye-pad ROI crop) against
   /// the Gemini vision API.
@@ -55,10 +67,12 @@ class StripValidatorService {
         model: _modelId,
         apiKey: apiKey.trim(),
         systemInstruction: Content.system(_systemInstruction),
-        // Low temperature for deterministic, structured JSON output.
+        // Low temperature + native JSON MIME type for deterministic,
+        // structured output without markdown wrapping.
         generationConfig: GenerationConfig(
           temperature: 0.0,
           maxOutputTokens: 150,
+          responseMimeType: 'application/json',
         ),
       );
 
