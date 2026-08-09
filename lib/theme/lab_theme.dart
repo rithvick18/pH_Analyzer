@@ -29,6 +29,14 @@ class LabTheme {
     if (ph < 12.0) return const Color(0xFF5E5CE6); // Indigo
     return phAlkalinePurple;
   }
+
+  static String getPhCategory(double ph) {
+    if (ph < 3.5) return 'Strongly Acidic';
+    if (ph < 6.5) return 'Slightly Acidic';
+    if (ph <= 7.5) return 'Neutral';
+    if (ph < 10.5) return 'Slightly Alkaline';
+    return 'Alkaline';
+  }
 }
 
 class GlassContainer extends StatelessWidget {

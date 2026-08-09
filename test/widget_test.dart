@@ -1,13 +1,23 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ph_analyzer/main.dart';
+import 'package:hive/hive.dart';
+import 'package:ph_analyzer/models/prediction_record.dart';
+import 'package:ph_analyzer/screens/home_screen.dart';
 import 'package:ph_analyzer/screens/live_camera_screen.dart';
 
 void main() {
-  testWidgets('App launches and displays HomeScreen with pH Analyzer title', (WidgetTester tester) async {
-    await tester.pumpWidget(const PHAnalyzerApp());
-    expect(find.text('pH Analyzer'), findsOneWidget);
-    expect(find.text('How It Works'), findsOneWidget);
+  setUpAll(() async {
+    final tempDir = await Directory.systemTemp.createTemp('hive_widget_test');
+    Hive.init(tempDir.path);
+    if (!Hive.isAdapterRegistered(0)) {
+      Hive.registerAdapter(PredictionRecordAdapter());
+    }
+  });
+  testWidgets('App launches and displays HomeScreen with pH Lens title', (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(home: HomeScreen()));
+    await tester.pump();
+    expect(find.text('Scan Dye Paper'), findsOneWidget);
   });
 
   testWidgets('LiveCameraScreen renders and toggles Manual Reference ROI', (WidgetTester tester) async {

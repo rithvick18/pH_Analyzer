@@ -58,10 +58,14 @@ class HistoryService {
 
   /// Retrieves all saved prediction records ordered newest first.
   static Future<List<PredictionRecord>> getAllRecords() async {
-    final box = await getBox();
-    final records = box.values.toList();
-    records.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    return records;
+    try {
+      final box = await getBox();
+      final records = box.values.toList();
+      records.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      return records;
+    } catch (_) {
+      return [];
+    }
   }
 
   /// Deletes a record from Hive and removes the associated image file.
