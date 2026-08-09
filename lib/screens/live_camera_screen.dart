@@ -518,40 +518,72 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
                 defaultValue: '',
               );
 
-          final StripValidationResult validation =
-              await StripValidatorService.validate(
-            imageBytes: dyeCropBytes,
-            apiKey: geminiApiKey,
-          );
-
-          if (!validation.isValid && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    const Icon(
-                      Icons.warning_amber_rounded,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'No test strip detected in ROI box: ${validation.reason}',
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                    ),
-                  ],
-                ),
-                backgroundColor: const Color(0xFFD84315),
-                behavior: SnackBarBehavior.floating,
-                duration: const Duration(seconds: 5),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
+          try {
+            final StripValidationResult validation =
+                await StripValidatorService.validate(
+              imageBytes: dyeCropBytes,
+              apiKey: geminiApiKey,
             );
-            return;
+
+            if (!validation.isValid && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'No test strip detected in ROI box: ${validation.reason}',
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                  backgroundColor: const Color(0xFFD84315),
+                  behavior: SnackBarBehavior.floating,
+                  duration: const Duration(seconds: 5),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              );
+              return;
+            }
+          } on RateLimitException {
+            // AI rate limit hit — inform the user and fall back to manual mode.
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Row(
+                    children: [
+                      Icon(
+                        Icons.speed_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'AI rate limit reached — switching to manual CIELAB mode',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                  backgroundColor: Colors.orange.shade800,
+                  behavior: SnackBarBehavior.floating,
+                  duration: const Duration(seconds: 4),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              );
+            }
           }
         }
       }

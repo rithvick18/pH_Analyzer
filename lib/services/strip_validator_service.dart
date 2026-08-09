@@ -3,6 +3,18 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
+/// Exception thrown when the Gemini API returns a rate limit (HTTP 429) error.
+///
+/// The caller should catch this to switch to manual CIELAB-only mode
+/// and inform the user that AI validation is temporarily unavailable.
+class RateLimitException implements Exception {
+  final String message;
+  const RateLimitException(this.message);
+
+  @override
+  String toString() => 'RateLimitException: $message';
+}
+
 /// Result returned by [StripValidatorService.validate].
 class StripValidationResult {
   /// Whether a valid pH test strip / dye pad was detected in the image.
@@ -99,13 +111,39 @@ class StripValidatorService {
 
       return _parseResponse(rawText);
     } catch (e) {
-      // Any network, quota, or unexpected error → fail-open.
+      // Detect rate limit errors and rethrow so the UI can handle them.
+      if (_isRateLimitError(e)) {
+        throw RateLimitException(
+          'API rate limit exceeded – switching to manual mode.',
+        );
+      }
+      // Any other network, quota, or unexpected error → fail-open.
       return StripValidationResult(
         isValid: true,
         reason:
             'Validation unavailable ($e) – proceeding with CIELAB analysis.',
       );
     }
+  }
+
+  /// Returns true if [error] indicates a Gemini API rate limit (HTTP 429).
+  ///
+  /// The `google_generative_ai` package surfaces rate limits as
+  /// [ServerException] with messages containing "429" or
+  /// "RESOURCE_EXHAUSTED".
+  static bool _isRateLimitError(Object error) {
+    if (error is ServerException) {
+      final msg = error.message.toUpperCase();
+      return msg.contains('429') ||
+          msg.contains('RESOURCE_EXHAUSTED') ||
+          msg.contains('RATE_LIMIT') ||
+          msg.contains('QUOTA');
+    }
+    // Also check the generic message string for safety.
+    final errorStr = error.toString().toUpperCase();
+    return errorStr.contains('429') ||
+        errorStr.contains('RESOURCE_EXHAUSTED') ||
+        errorStr.contains('RATE_LIMIT');
   }
 
   /// Parses the JSON string returned by Gemini into a [StripValidationResult].
