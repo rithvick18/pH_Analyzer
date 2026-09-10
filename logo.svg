@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1146 1372" width="1146" height="1372">
+  <defs>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#C9F7FB"/>
+      <stop offset="100%" stop-color="#BCEEF4"/>
+    </linearGradient>
+    <linearGradient id="liquid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#20DF67"/>
+      <stop offset="100%" stop-color="#08B953"/>
+    </linearGradient>
+    <linearGradient id="shadow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#5C9AA3" stop-opacity=".45"/>
+      <stop offset="50%" stop-color="#386F79" stop-opacity=".58"/>
+      <stop offset="100%" stop-color="#5C9AA3" stop-opacity=".45"/>
+    </linearGradient>
+
+    <clipPath id="flaskClip">
+      <path d="M423 124
+               L423 500
+               C423 525 403 551 382 588
+               L113 1018
+               C81 1067 71 1110 76 1158
+               C83 1222 129 1267 205 1283
+               C229 1288 251 1290 280 1290
+               L866 1290
+               C895 1290 918 1288 941 1283
+               C1017 1267 1063 1222 1070 1158
+               C1075 1110 1065 1067 1033 1018
+               L764 588
+               C743 551 723 525 723 500
+               L723 124 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Transparent background -->
+
+  <!-- Ground shadow -->
+  <ellipse cx="573" cy="1297" rx="446" ry="54" fill="url(#shadow)"/>
+
+  <!-- Flask body -->
+  <path d="M423 124
+           L423 500
+           C423 525 403 551 382 588
+           L113 1018
+           C81 1067 71 1110 76 1158
+           C83 1222 129 1267 205 1283
+           C229 1288 251 1290 280 1290
+           L866 1290
+           C895 1290 918 1288 941 1283
+           C1017 1267 1063 1222 1070 1158
+           C1075 1110 1065 1067 1033 1018
+           L764 588
+           C743 551 723 525 723 500
+           L723 124 Z"
+        fill="url(#glass)"/>
+
+  <!-- Neck inner softness -->
+  <rect x="456" y="130" width="234" height="410" rx="44" fill="#D4FAFD" opacity=".28"/>
+
+  <!-- Long neck highlight -->
+  <rect x="485" y="151" width="36" height="353" rx="18" fill="#F7FFFF" opacity=".70"/>
+
+  <!-- Glass bubbles -->
+  <circle cx="559" cy="307" r="30" fill="#F7FFFF" opacity=".64"/>
+  <circle cx="557" cy="459" r="24" fill="#F7FFFF" opacity=".64"/>
+  <circle cx="575" cy="578" r="16" fill="#F7FFFF" opacity=".72"/>
+
+  <!-- Left-side reflected highlight -->
+  <path d="M151 1119
+           C135 1086 143 1046 166 1008
+           L410 619
+           C429 588 442 564 446 544
+           C424 560 410 582 391 613
+           L129 1033
+           C104 1074 93 1114 98 1155
+           C102 1184 111 1208 127 1227
+           C128 1188 136 1152 151 1119 Z"
+        fill="#F5FFFF" opacity=".60"/>
+
+  <!-- Liquid, clipped inside flask -->
+  <g clip-path="url(#flaskClip)">
+    <path d="M101 1020
+             L278 902
+             C377 865 480 875 574 908
+             C670 942 775 974 876 954
+             C908 948 938 937 965 922
+             L1082 1107
+             L1082 1335
+             L63 1335
+             L63 1127 Z"
+          fill="url(#liquid)"/>
+
+    <!-- Liquid bubbles -->
+    <circle cx="451" cy="972" r="34" fill="#69EDA1" opacity=".92"/>
+    <circle cx="637" cy="889" r="24" fill="#69EDA1" opacity=".92"/>
+    <circle cx="789" cy="956" r="29" fill="#69EDA1" opacity=".92"/>
+    <circle cx="605" cy="973" r="14" fill="#69EDA1" opacity=".92"/>
+    <circle cx="695" cy="1023" r="18" fill="#69EDA1" opacity=".92"/>
+    <circle cx="407" cy="1101" r="29" fill="#69EDA1" opacity=".92"/>
+    <circle cx="534" cy="1074" r="23" fill="#69EDA1" opacity=".92"/>
+    <circle cx="764" cy="1106" r="18" fill="#69EDA1" opacity=".92"/>
+  </g>
+
+  <!-- Top lip -->
+  <rect x="414" y="77" width="318" height="61" rx="31" fill="#A9E8EF"/>
+</svg>

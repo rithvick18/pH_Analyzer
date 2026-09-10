@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/prediction_record.dart';
 import '../services/history_service.dart';
@@ -314,12 +315,12 @@ class _HomeScreenState extends State<HomeScreen> {
               width: 44,
               height: 44,
               alignment: Alignment.center,
-              child: Image.asset(
-                'assets/logo.png',
+              child: SvgPicture.asset(
+                'assets/logo.svg',
                 width: 38,
                 height: 38,
                 fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) =>
+                placeholderBuilder: (context) =>
                     const Icon(Icons.science, size: 36, color: Color(0xFF2563EB)),
               ),
             ),
