@@ -487,105 +487,73 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
         return;
       }
 
-      final bool isOnline = await StripValidatorService.hasInternetConnection();
+      final Uint8List? dyeCropBytes = await compute(_cropDyeRoiBytes, {
+        'imagePath': imagePath,
+        'left': dyeImageRect.left,
+        'top': dyeImageRect.top,
+        'width': dyeImageRect.width,
+        'height': dyeImageRect.height,
+      });
 
-      if (!isOnline) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text(
-                'No internet available — using CIELAB in manual mode',
-              ),
-              backgroundColor: Colors.orange.shade800,
-              duration: const Duration(seconds: 4),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-      } else {
-        final Uint8List? dyeCropBytes = await compute(_cropDyeRoiBytes, {
-          'imagePath': imagePath,
-          'left': dyeImageRect.left,
-          'top': dyeImageRect.top,
-          'width': dyeImageRect.width,
-          'height': dyeImageRect.height,
-        });
+      if (dyeCropBytes == null) {
+        throw StateError('Could not prepare the dye image for AI validation.');
+      }
+      final String geminiApiKey =
+          dotenv.env['GEMINI_API_KEY'] ??
+          const String.fromEnvironment('GEMINI_API_KEY', defaultValue: '');
 
-        if (dyeCropBytes != null) {
-          final String geminiApiKey = dotenv.env['GEMINI_API_KEY'] ??
-              const String.fromEnvironment(
-                'GEMINI_API_KEY',
-                defaultValue: '',
-              );
-
-          try {
-            final StripValidationResult validation =
-                await StripValidatorService.validate(
+      try {
+        final StripValidationResult validation =
+            await StripValidatorService.validate(
               imageBytes: dyeCropBytes,
               apiKey: geminiApiKey,
             );
 
-            if (!validation.isValid && mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Row(
-                    children: [
-                      const Icon(
-                        Icons.warning_amber_rounded,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'No test strip detected in ROI box: ${validation.reason}',
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                      ),
-                    ],
+        if (!validation.isValid && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.white,
+                    size: 20,
                   ),
-                  backgroundColor: const Color(0xFFD84315),
-                  behavior: SnackBarBehavior.floating,
-                  duration: const Duration(seconds: 5),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'No test strip detected in ROI box: ${validation.reason}',
+                      style: const TextStyle(fontSize: 13),
+                    ),
                   ),
-                ),
-              );
-              return;
-            }
-          } on RateLimitException {
-            // AI rate limit hit — inform the user and fall back to manual mode.
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Row(
-                    children: [
-                      Icon(
-                        Icons.speed_rounded,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                      SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'AI rate limit reached — switching to manual CIELAB mode',
-                          style: TextStyle(fontSize: 13),
-                        ),
-                      ),
-                    ],
-                  ),
-                  backgroundColor: Colors.orange.shade800,
-                  behavior: SnackBarBehavior.floating,
-                  duration: const Duration(seconds: 4),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              );
-            }
-          }
+                ],
+              ),
+              backgroundColor: const Color(0xFFD84315),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 5),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          );
+          return;
         }
+        if (!validation.wasValidated && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(validation.reason),
+              backgroundColor: Colors.orange.shade800,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      } on RateLimitException catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(e.message)));
+        }
+        return;
       }
 
       if (mounted) {

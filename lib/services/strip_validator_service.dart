@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -5,8 +6,7 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 
 /// Exception thrown when the Gemini API returns a rate limit (HTTP 429) error.
 ///
-/// The caller should catch this to switch to manual CIELAB-only mode
-/// and inform the user that AI validation is temporarily unavailable.
+/// The caller should stop the scan and ask the user to retry later.
 class RateLimitException implements Exception {
   final String message;
   const RateLimitException(this.message);
@@ -20,29 +20,25 @@ class StripValidationResult {
   /// Whether a valid pH test strip / dye pad was detected in the image.
   final bool isValid;
 
+  /// False when connection failures prevented AI validation.
+  final bool wasValidated;
+
   /// A brief human-readable explanation from the model.
   final String reason;
 
-  const StripValidationResult({required this.isValid, required this.reason});
+  const StripValidationResult({
+    required this.isValid,
+    required this.reason,
+    this.wasValidated = true,
+  });
 }
 
 /// Sends a cropped ROI image to Gemini 3.5 Flash Lite and asks whether the frame
 /// contains a valid colorimetric pH test strip or dye pad.
 ///
-/// Fail-open design: any network error, missing API key, or malformed JSON
-/// response causes the service to return [StripValidationResult.isValid] == true
-/// so the normal CIELAB pipeline can still run (graceful degradation).
+/// Every capture attempts the API directly; unrelated connectivity probes must
+/// never prevent validation. Only transport failures permit local-only analysis.
 class StripValidatorService {
-  /// Checks whether an active internet connection is present via network ping.
-  static Future<bool> hasInternetConnection() async {
-    try {
-      final result = await InternetAddress.lookup('example.com')
-          .timeout(const Duration(seconds: 3));
-      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
-    } catch (_) {
-      return false;
-    }
-  }
   /// System instruction sent to the model alongside the image.
   ///
   /// Acts as an expert laboratory colorimetry inspector: it defines acceptance
@@ -67,22 +63,17 @@ class StripValidatorService {
   /// Validates [imageBytes] (JPEG / PNG bytes of the dye-pad ROI crop) against
   /// the Gemini vision API.
   ///
-  /// [apiKey] – your Google AI Studio API key. If empty or null, the service
-  /// skips the network call and returns a valid result so the CIELAB pipeline
-  /// continues uninterrupted.
-  ///
-  /// Never throws; all exceptions are caught and resolved to isValid == true.
+  /// Missing credentials, API errors, and malformed responses stop analysis.
+  /// Transport failures are retried once before allowing local CIELAB analysis.
+  /// [request] substitutes the API request for deterministic tests.
   static Future<StripValidationResult> validate({
     required Uint8List imageBytes,
     required String? apiKey,
     String mimeType = 'image/jpeg',
+    Future<String> Function()? request,
   }) async {
-    // Guard: skip validation when API key is absent to avoid hard failures.
     if (apiKey == null || apiKey.trim().isEmpty) {
-      return const StripValidationResult(
-        isValid: true,
-        reason: 'API key not configured – validation skipped, proceeding.',
-      );
+      throw StateError('AI validation requires a configured GEMINI_API_KEY.');
     }
 
     try {
@@ -106,23 +97,35 @@ class StripValidatorService {
         ]),
       ];
 
-      final response = await model.generateContent(prompt);
-      final String rawText = response.text ?? '';
-
-      return _parseResponse(rawText);
+      for (var attempt = 0; attempt < 2; attempt++) {
+        try {
+          final rawText =
+              await (request != null
+                      ? request()
+                      : model
+                            .generateContent(prompt)
+                            .then((response) => response.text ?? ''))
+                  .timeout(const Duration(seconds: 20));
+          return _parseResponse(rawText);
+        } on SocketException {
+          if (attempt == 0) continue;
+        } on TimeoutException {
+          if (attempt == 0) continue;
+        }
+      }
+      return const StripValidationResult(
+        isValid: true,
+        wasValidated: false,
+        reason:
+            'AI connection unavailable after retry — using local CIELAB analysis.',
+      );
     } catch (e) {
-      // Detect rate limit errors and rethrow so the UI can handle them.
       if (_isRateLimitError(e)) {
-        throw RateLimitException(
-          'API rate limit exceeded – switching to manual mode.',
+        throw const RateLimitException(
+          'AI rate limit reached. Please retry later.',
         );
       }
-      // Any other network, quota, or unexpected error → fail-open.
-      return StripValidationResult(
-        isValid: true,
-        reason:
-            'Validation unavailable ($e) – proceeding with CIELAB analysis.',
-      );
+      rethrow;
     }
   }
 
@@ -149,7 +152,7 @@ class StripValidatorService {
   /// Parses the JSON string returned by Gemini into a [StripValidationResult].
   ///
   /// Handles model responses wrapped in markdown code fences.
-  /// Defaults to isValid == true on any parse failure (fail-open).
+  /// Rejects malformed responses instead of treating them as AI approval.
   static StripValidationResult _parseResponse(String rawText) {
     try {
       // Strip markdown code fences the model occasionally wraps around JSON.
@@ -165,19 +168,15 @@ class StripValidatorService {
       final int start = cleaned.indexOf('{');
       final int end = cleaned.lastIndexOf('}');
       if (start == -1 || end == -1 || end <= start) {
-        return const StripValidationResult(
-          isValid: true,
-          reason: 'Could not locate JSON in model response – proceeding.',
-        );
+        throw const FormatException('AI validation returned no JSON object.');
       }
 
       final String jsonStr = cleaned.substring(start, end + 1);
       final dynamic decoded = jsonDecode(jsonStr);
 
       if (decoded is! Map) {
-        return const StripValidationResult(
-          isValid: true,
-          reason: 'Unexpected JSON structure – proceeding.',
+        throw const FormatException(
+          'AI validation returned an invalid object.',
         );
       }
 
@@ -186,9 +185,10 @@ class StripValidatorService {
       final dynamic isValidRaw = result['isValid'];
       final dynamic reasonRaw = result['reason'];
 
-      final bool isValid = isValidRaw is bool
-          ? isValidRaw
-          : (isValidRaw?.toString().toLowerCase() == 'true');
+      if (isValidRaw is! bool) {
+        throw const FormatException('AI validation omitted a boolean isValid.');
+      }
+      final bool isValid = isValidRaw;
 
       final String reason = reasonRaw is String
           ? reasonRaw
@@ -196,9 +196,8 @@ class StripValidatorService {
 
       return StripValidationResult(isValid: isValid, reason: reason);
     } catch (_) {
-      return const StripValidationResult(
-        isValid: true,
-        reason: 'JSON parse error – proceeding with CIELAB analysis.',
+      throw const FormatException(
+        'AI validation response could not be read. Please retry.',
       );
     }
   }
