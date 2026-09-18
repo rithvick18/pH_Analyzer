@@ -1,9 +1,25 @@
+import 'dart:io';
+import 'measurement.dart';
 import 'package:hive/hive.dart';
 
 class PredictionRecord extends HiveObject {
   String id;
   double phValue;
-  String imagePath;
+  static String? storageDirectory;
+  final String storedImagePath;
+  String get imagePath {
+    if (storedImagePath.startsWith('/') ||
+        RegExp(r'^[A-Za-z]:').hasMatch(storedImagePath)) {
+      return storedImagePath;
+    }
+    return storageDirectory == null
+        ? storedImagePath
+        : '$storageDirectory${Platform.pathSeparator}$storedImagePath';
+  }
+
+  final Measurement? measurement;
+  String get statusLabel =>
+      measurement?.statusLabel ?? 'Legacy estimate • Validation unknown';
   DateTime timestamp;
   String? note;
 
@@ -20,7 +36,8 @@ class PredictionRecord extends HiveObject {
   PredictionRecord({
     required this.id,
     required this.phValue,
-    required this.imagePath,
+    required String imagePath,
+    this.measurement,
     required this.timestamp,
     this.note,
     this.dyeLeft,
@@ -31,7 +48,7 @@ class PredictionRecord extends HiveObject {
     this.bgTop,
     this.bgWidth,
     this.bgHeight,
-  });
+  }) : storedImagePath = imagePath;
 }
 
 class PredictionRecordAdapter extends TypeAdapter<PredictionRecord> {
@@ -45,6 +62,9 @@ class PredictionRecordAdapter extends TypeAdapter<PredictionRecord> {
       for (int i = 0; i < numOfFields; i++) reader.readByte(): reader.read(),
     };
     return PredictionRecord(
+      measurement: fields[13] == null
+          ? null
+          : Measurement.fromJson(fields[13] as Map),
       id: fields[0] as String,
       phValue: (fields[1] as num).toDouble(),
       imagePath: fields[2] as String,
@@ -64,13 +84,13 @@ class PredictionRecordAdapter extends TypeAdapter<PredictionRecord> {
   @override
   void write(BinaryWriter writer, PredictionRecord obj) {
     writer
-      ..writeByte(13)
+      ..writeByte(14)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
       ..write(obj.phValue)
       ..writeByte(2)
-      ..write(obj.imagePath)
+      ..write(obj.storedImagePath)
       ..writeByte(3)
       ..write(obj.timestamp)
       ..writeByte(4)
@@ -90,6 +110,8 @@ class PredictionRecordAdapter extends TypeAdapter<PredictionRecord> {
       ..writeByte(11)
       ..write(obj.bgWidth)
       ..writeByte(12)
-      ..write(obj.bgHeight);
+      ..write(obj.bgHeight)
+      ..writeByte(13)
+      ..write(obj.measurement?.toJson());
   }
 }

@@ -56,10 +56,6 @@ class ColorConverter {
     final labDye = rgbToLab(dyeRgb);
     final labBg = rgbToLab(bgRgb);
 
-    return [
-      labDye[0] - labBg[0],
-      labDye[1] - labBg[1],
-      labDye[2] - labBg[2],
-    ];
+    return [labDye[0] - labBg[0], labDye[1] - labBg[1], labDye[2] - labBg[2]];
   }
 }

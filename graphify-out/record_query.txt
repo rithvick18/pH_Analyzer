@@ -1,0 +1,14 @@
+Node: PredictionRecord
+  ID:        lib_models_prediction_record_predictionrecord
+  Source:    lib/models/prediction_record.dart L3
+  Type:      code
+  Community: Hive Record Adapter
+  Degree:    6
+
+Connections (6):
+  <-- history_screen.dart [references] [EXTRACTED] lib/screens/history_screen.dart:L253
+  <-- prediction_record.dart [defines] [EXTRACTED] lib/models/prediction_record.dart:L3
+  <-- history_service.dart [references] [EXTRACTED] lib/services/history_service.dart:L14
+  <-- prediction_record_test.dart [references] [EXTRACTED] test/prediction_record_test.dart:L17
+  <-- PredictionRecordAdapter [references] [EXTRACTED] lib/models/prediction_record.dart:L37
+  --> HiveObject [inherits] [EXTRACTED] lib/models/prediction_record.dart:L3

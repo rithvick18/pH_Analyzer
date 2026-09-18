@@ -92,7 +92,11 @@ void main() {
       final Rect dyeRect = const Rect.fromLTRB(50, 50, 150, 150);
       final Rect bgRect = const Rect.fromLTRB(10, 200, 190, 280);
 
-      final double predictedPh = analyzer.predictFromImage(syntheticImg, dyeRect, bgRect);
+      final double predictedPh = analyzer.predictFromImage(
+        syntheticImg,
+        dyeRect,
+        bgRect,
+      );
       expect(predictedPh, closeTo(7.0, 0.1));
     });
 
@@ -119,59 +123,64 @@ void main() {
       final Rect dyeRect = const Rect.fromLTRB(50, 50, 150, 150);
       final Rect bgRect = const Rect.fromLTRB(10, 200, 190, 280);
 
-      final double predictedPh = analyzer.predictFromImage(syntheticImg, dyeRect, bgRect);
+      final double predictedPh = analyzer.predictFromImage(
+        syntheticImg,
+        dyeRect,
+        bgRect,
+      );
       expect(predictedPh, closeTo(2.3, 0.1));
     });
 
-    test('Single Dye Pad ROI uses calibrated reference baseline [245, 245, 240]', () {
-      final analyzer = PHAnalyzer();
-      analyzer.trainFromJsonString(sampleCalibrationJson);
+    test(
+      'Single Dye Pad ROI uses calibrated reference baseline [245, 245, 240]',
+      () {
+        final analyzer = PHAnalyzer();
+        analyzer.trainFromJsonString(sampleCalibrationJson);
 
-      final syntheticImg = img.Image(width: 200, height: 300);
-      for (int y = 0; y < 300; y++) {
-        for (int x = 0; x < 200; x++) {
-          syntheticImg.setPixelRgb(x, y, 200, 140, 100);
+        final syntheticImg = img.Image(width: 200, height: 300);
+        for (int y = 0; y < 300; y++) {
+          for (int x = 0; x < 200; x++) {
+            syntheticImg.setPixelRgb(x, y, 200, 140, 100);
+          }
         }
-      }
 
-      final Rect dyeRect = const Rect.fromLTRB(50, 50, 150, 150);
+        final Rect dyeRect = const Rect.fromLTRB(50, 50, 150, 150);
 
-      // Null bgRect triggers default reference baseline [245, 245, 240]
-      final double predictedPh = analyzer.predictFromImage(syntheticImg, dyeRect);
-      expect(predictedPh, closeTo(7.0, 0.1));
-    });
+        // Null bgRect triggers default reference baseline [245, 245, 240]
+        final double predictedPh = analyzer.predictFromImage(
+          syntheticImg,
+          dyeRect,
+        );
+        expect(predictedPh, closeTo(7.0, 0.1));
+      },
+    );
 
-    test('Clamps predicted pH strictly within [0.0, 14.0] boundary', () {
-      final analyzer = PHAnalyzer();
-      analyzer.trainFromJsonString(sampleCalibrationJson);
-
-      // Using [220, 220, 220] (Luma Y = 220, within [40, 230])
-      final double lowPh = analyzer.predictFromRgb([220, 220, 220], [245, 245, 240]);
-      expect(lowPh, greaterThanOrEqualTo(0.0));
-      expect(lowPh, lessThanOrEqualTo(14.0));
-
-      // Using [50, 50, 50] (Luma Y = 50, within [40, 230])
-      final double highPh = analyzer.predictFromRgb([50, 50, 50], [245, 245, 240]);
-      expect(highPh, greaterThanOrEqualTo(0.0));
-      expect(highPh, lessThanOrEqualTo(14.0));
-    });
-
-    test('Throws LuminanceException if average Luma is out of safe range [40, 230]', () {
-      final analyzer = PHAnalyzer();
-      analyzer.trainFromJsonString(sampleCalibrationJson);
-
-      // Too dark (Luma Y = 0)
+    test('Rejects colors too far from the experimental calibration', () {
+      final analyzer = PHAnalyzer()..trainFromJsonString(sampleCalibrationJson);
       expect(
-        () => analyzer.predictFromRgb([0, 0, 0], [245, 245, 240]),
-        throwsA(isA<LuminanceException>()),
-      );
-
-      // Too bright (Luma Y = 255)
-      expect(
-        () => analyzer.predictFromRgb([255, 255, 255], [245, 245, 240]),
-        throwsA(isA<LuminanceException>()),
+        () => analyzer.predictFromRgb([40, 200, 60], [245, 245, 240]),
+        throwsA(isA<MeasurementQualityException>()),
       );
     });
+
+    test(
+      'Throws LuminanceException if average Luma is out of safe range [40, 230]',
+      () {
+        final analyzer = PHAnalyzer();
+        analyzer.trainFromJsonString(sampleCalibrationJson);
+
+        // Too dark (Luma Y = 0)
+        expect(
+          () => analyzer.predictFromRgb([0, 0, 0], [245, 245, 240]),
+          throwsA(isA<LuminanceException>()),
+        );
+
+        // Too bright (Luma Y = 255)
+        expect(
+          () => analyzer.predictFromRgb([255, 255, 255], [245, 245, 240]),
+          throwsA(isA<LuminanceException>()),
+        );
+      },
+    );
   });
 }
-

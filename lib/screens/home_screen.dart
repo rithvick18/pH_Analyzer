@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../services/diagnostics.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/prediction_record.dart';
@@ -22,26 +24,71 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentBottomNavIndex = 0;
   List<PredictionRecord> _recentRecords = [];
   bool _isLoadingHistory = true;
+  String? _historyError;
 
   @override
   void initState() {
     super.initState();
+    HistoryService.revision.addListener(_loadRecentRecords);
     Future.microtask(() => _loadRecentRecords());
+    _recoverLostImage();
+  }
+
+  @override
+  void dispose() {
+    HistoryService.revision.removeListener(_loadRecentRecords);
+    super.dispose();
+  }
+
+  Future<void> _recoverLostImage() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final response = await ImagePicker().retrieveLostData();
+      if (!mounted || response.isEmpty) return;
+      if (response.files?.isNotEmpty == true) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => ROISelector(imagePath: response.files!.first.path),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'The interrupted photo selection could not be restored. Please choose the photo again.',
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Photo recovery failed. Please select your photo again.',
+            ),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _loadRecentRecords() async {
+    if (!mounted) return;
     try {
       final records = await HistoryService.getAllRecords();
       if (mounted) {
         setState(() {
           _recentRecords = records;
+          _historyError = null;
           _isLoadingHistory = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _recentRecords = [];
+          _historyError =
+              'Unable to load local history. Check storage and retry.';
           _isLoadingHistory = false;
         });
       }
@@ -53,14 +100,16 @@ class _HomeScreenState extends State<HomeScreen> {
       final picker = ImagePicker();
       final XFile? image = await picker.pickImage(source: source);
       if (image != null && context.mounted) {
-        final result = await Navigator.of(context).push(
+        await Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => ROISelector(imagePath: image.path),
+            builder: (_) => ROISelector(
+              imagePath: image.path,
+              source: source == ImageSource.camera ? 'camera' : 'gallery',
+              capturedAt: DateTime.now(),
+            ),
           ),
         );
-        if (result == true) {
-          _loadRecentRecords();
-        }
+        if (mounted) _loadRecentRecords();
       }
     } catch (e) {
       if (context.mounted) {
@@ -81,7 +130,7 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       backgroundColor: Colors.white,
-      builder: (context) {
+      builder: (sheetContext) {
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(24.0),
@@ -112,26 +161,26 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 8),
                 const Text(
                   'Choose how you want to capture your pH dye paper strip',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFF64748B),
-                  ),
+                  style: TextStyle(fontSize: 14, color: Color(0xFF64748B)),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 24),
                 ElevatedButton.icon(
                   onPressed: () {
-                    Navigator.pop(context);
+                    Navigator.pop(sheetContext);
                     Navigator.of(context)
                         .push(
-                      MaterialPageRoute(
-                          builder: (_) => const LiveCameraScreen()),
-                    )
+                          MaterialPageRoute(
+                            builder: (_) => const LiveCameraScreen(),
+                          ),
+                        )
                         .then((_) => _loadRecentRecords());
                   },
                   icon: const Icon(Icons.videocam_rounded, size: 22),
-                  label: const Text('Use Live Camera',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                  label: const Text(
+                    'Use Live Camera',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2563EB),
                     foregroundColor: Colors.white,
@@ -145,15 +194,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
                   onPressed: () {
-                    Navigator.pop(context);
+                    Navigator.pop(sheetContext);
                     _pickImage(context, ImageSource.camera);
                   },
                   icon: const Icon(Icons.camera_alt_outlined, size: 22),
-                  label: const Text('Take Quick Photo',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                  label: const Text(
+                    'Take Quick Photo',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                  ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF0F172A),
-                    side: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
+                    side: const BorderSide(
+                      color: Color(0xFFE2E8F0),
+                      width: 1.5,
+                    ),
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
@@ -163,15 +217,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
                   onPressed: () {
-                    Navigator.pop(context);
+                    Navigator.pop(sheetContext);
                     _pickImage(context, ImageSource.gallery);
                   },
                   icon: const Icon(Icons.photo_library_outlined, size: 22),
-                  label: const Text('Choose from Photo Gallery',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                  label: const Text(
+                    'Choose from Photo Gallery',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                  ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF0F172A),
-                    side: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
+                    side: const BorderSide(
+                      color: Color(0xFFE2E8F0),
+                      width: 1.5,
+                    ),
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
@@ -221,8 +280,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         color: const Color(0xFFEFF6FF),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(Icons.settings_outlined,
-                          color: Color(0xFF2563EB)),
+                      child: const Icon(
+                        Icons.settings_outlined,
+                        color: Color(0xFF2563EB),
+                      ),
                     ),
                     const SizedBox(width: 14),
                     const Text(
@@ -239,12 +300,37 @@ class _HomeScreenState extends State<HomeScreen> {
                 const ListTile(
                   leading: Icon(Icons.memory, color: Color(0xFF2563EB)),
                   title: Text('Edge Analysis Engine'),
-                  subtitle: Text('Local Natural Cubic Spline over CIELAB space'),
+                  subtitle: Text(
+                    'Local Natural Cubic Spline over CIELAB space',
+                  ),
                 ),
                 const ListTile(
                   leading: Icon(Icons.security, color: Color(0xFF2563EB)),
                   title: Text('Privacy First'),
-                  subtitle: Text('100% Offline processing. Zero cloud image uploads.'),
+                  subtitle: Text(
+                    'Photos are analyzed on this device. Sharing a report is always your choice.',
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.bug_report_outlined),
+                  title: const Text('Copy local diagnostics'),
+                  subtitle: const Text(
+                    'Error types only; no photos, notes, or file paths.',
+                  ),
+                  onTap: () async {
+                    await Clipboard.setData(
+                      ClipboardData(text: Diagnostics.summary),
+                    );
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Diagnostics copied. Nothing was uploaded.',
+                          ),
+                        ),
+                      );
+                    }
+                  },
                 ),
                 const ListTile(
                   leading: Icon(Icons.info_outline, color: Color(0xFF2563EB)),
@@ -259,8 +345,6 @@ class _HomeScreenState extends State<HomeScreen> {
       },
     );
   }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -320,8 +404,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 width: 38,
                 height: 38,
                 fit: BoxFit.contain,
-                placeholderBuilder: (context) =>
-                    const Icon(Icons.science, size: 36, color: Color(0xFF2563EB)),
+                placeholderBuilder: (context) => const Icon(
+                  Icons.science,
+                  size: 36,
+                  color: Color(0xFF2563EB),
+                ),
               ),
             ),
             const SizedBox(width: 10),
@@ -431,7 +518,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(width: 8),
         const Text(
-          'Camera ready',
+          'On-device analysis',
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w500,
@@ -450,11 +537,7 @@ class _HomeScreenState extends State<HomeScreen> {
         gradient: const LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFFEFF6FF),
-            Color(0xFFF8FAFC),
-            Colors.white,
-          ],
+          colors: [Color(0xFFEFF6FF), Color(0xFFF8FAFC), Colors.white],
         ),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: const Color(0xFFE2E8F0), width: 1.0),
@@ -509,10 +592,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       gradient: const LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
-                        colors: [
-                          Color(0xFF3B82F6),
-                          Color(0xFF7C3AED),
-                        ],
+                        colors: [Color(0xFF3B82F6), Color(0xFF7C3AED)],
                       ),
                       boxShadow: [
                         BoxShadow(
@@ -592,7 +672,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   iconColor: const Color(0xFF9333EA),
                   icon: Icons.science_outlined,
                   title: '3. Get pH',
-                  description: 'Instant pH result\nwith confidence',
+                  description: 'On-device pH\nestimate',
                 ),
               ),
             ],
@@ -615,10 +695,7 @@ class _HomeScreenState extends State<HomeScreen> {
         Container(
           width: 44,
           height: 44,
-          decoration: BoxDecoration(
-            color: badgeColor,
-            shape: BoxShape.circle,
-          ),
+          decoration: BoxDecoration(color: badgeColor, shape: BoxShape.circle),
           alignment: Alignment.center,
           child: Icon(icon, color: iconColor, size: 22),
         ),
@@ -653,11 +730,8 @@ class _HomeScreenState extends State<HomeScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: List.generate(
           4,
-          (index) => Container(
-            width: 3,
-            height: 1.5,
-            color: const Color(0xFFCBD5E1),
-          ),
+          (index) =>
+              Container(width: 3, height: 1.5, color: const Color(0xFFCBD5E1)),
         ),
       ),
     );
@@ -679,9 +753,7 @@ class _HomeScreenState extends State<HomeScreen> {
         GestureDetector(
           onTap: () {
             Navigator.of(context)
-                .push(
-              MaterialPageRoute(builder: (_) => const HistoryScreen()),
-            )
+                .push(MaterialPageRoute(builder: (_) => const HistoryScreen()))
                 .then((_) => _loadRecentRecords());
           },
           child: const Row(
@@ -695,11 +767,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               SizedBox(width: 4),
-              Icon(
-                Icons.chevron_right,
-                size: 18,
-                color: Color(0xFF2563EB),
-              ),
+              Icon(Icons.chevron_right, size: 18, color: Color(0xFF2563EB)),
             ],
           ),
         ),
@@ -708,6 +776,17 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildRecentMeasurementsList() {
+    if (_historyError != null) {
+      return Column(
+        children: [
+          Text(_historyError!, style: const TextStyle(color: Colors.redAccent)),
+          TextButton(
+            onPressed: _loadRecentRecords,
+            child: const Text('Retry history'),
+          ),
+        ],
+      );
+    }
     if (_isLoadingHistory) {
       return const Center(
         child: Padding(
@@ -729,13 +808,15 @@ class _HomeScreenState extends State<HomeScreen> {
             statusLabel: category,
             statusColor: categoryColor,
             timeAgo: timeAgo,
-            confidence: 94,
+            qualityLabel: record.measurement?.isDemo == true
+                ? 'DEMO'
+                : 'Estimate',
             imagePath: record.imagePath,
             onTap: () {
               Navigator.of(context)
                   .push(
-                MaterialPageRoute(builder: (_) => const HistoryScreen()),
-              )
+                    MaterialPageRoute(builder: (_) => const HistoryScreen()),
+                  )
                   .then((_) => _loadRecentRecords());
             },
           );
@@ -803,7 +884,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required String statusLabel,
     required Color statusColor,
     required String timeAgo,
-    required int confidence,
+    required String qualityLabel,
     String? imagePath,
     required VoidCallback onTap,
   }) {
@@ -898,7 +979,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(width: 14),
 
-              // Right timestamp & confidence pill
+              // Timestamp and persistent estimate status
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
@@ -914,21 +995,19 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 4),
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
-                          color: confidence >= 92
-                              ? const Color(0xFFDCFCE7)
-                              : const Color(0xFFFFEDD5),
+                          color: const Color(0xFFFFEDD5),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          '$confidence%',
+                          qualityLabel,
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
-                            color: confidence >= 92
-                                ? const Color(0xFF16A34A)
-                                : const Color(0xFFEA580C),
+                            color: const Color(0xFFEA580C),
                           ),
                         ),
                       ),
@@ -942,11 +1021,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 2),
                   const Text(
-                    'Confidence',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: Color(0xFF94A3B8),
-                    ),
+                    'Unvalidated',
+                    style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
                   ),
                 ],
               ),
@@ -967,7 +1043,10 @@ class _HomeScreenState extends State<HomeScreen> {
           child: LayoutBuilder(
             builder: (context, constraints) {
               final double barWidth = constraints.maxWidth;
-              final double pointerX = (barWidth * fraction).clamp(4.0, barWidth - 4.0);
+              final double pointerX = (barWidth * fraction).clamp(
+                4.0,
+                barWidth - 4.0,
+              );
 
               return Stack(
                 clipBehavior: Clip.none,
@@ -1015,13 +1094,34 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('0', style: TextStyle(fontSize: 9, color: Color(0xFF94A3B8))),
-              Text('3', style: TextStyle(fontSize: 9, color: Color(0xFF94A3B8))),
-              Text('6', style: TextStyle(fontSize: 9, color: Color(0xFF94A3B8))),
-              Text('7', style: TextStyle(fontSize: 9, color: Color(0xFF94A3B8))),
-              Text('9', style: TextStyle(fontSize: 9, color: Color(0xFF94A3B8))),
-              Text('12', style: TextStyle(fontSize: 9, color: Color(0xFF94A3B8))),
-              Text('14', style: TextStyle(fontSize: 9, color: Color(0xFF94A3B8))),
+              Text(
+                '0',
+                style: TextStyle(fontSize: 9, color: Color(0xFF94A3B8)),
+              ),
+              Text(
+                '3',
+                style: TextStyle(fontSize: 9, color: Color(0xFF94A3B8)),
+              ),
+              Text(
+                '6',
+                style: TextStyle(fontSize: 9, color: Color(0xFF94A3B8)),
+              ),
+              Text(
+                '7',
+                style: TextStyle(fontSize: 9, color: Color(0xFF94A3B8)),
+              ),
+              Text(
+                '9',
+                style: TextStyle(fontSize: 9, color: Color(0xFF94A3B8)),
+              ),
+              Text(
+                '12',
+                style: TextStyle(fontSize: 9, color: Color(0xFF94A3B8)),
+              ),
+              Text(
+                '14',
+                style: TextStyle(fontSize: 9, color: Color(0xFF94A3B8)),
+              ),
             ],
           ),
         ),
@@ -1068,8 +1168,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: () {
                   Navigator.of(context)
                       .push(
-                    MaterialPageRoute(builder: (_) => const HistoryScreen()),
-                  )
+                        MaterialPageRoute(
+                          builder: (_) => const HistoryScreen(),
+                        ),
+                      )
                       .then((_) => _loadRecentRecords());
                 },
               ),
@@ -1114,7 +1216,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               child: Icon(
                 icon,
-                color: isActive ? const Color(0xFF2563EB) : const Color(0xFF64748B),
+                color: isActive
+                    ? const Color(0xFF2563EB)
+                    : const Color(0xFF64748B),
                 size: 22,
               ),
             ),
@@ -1124,7 +1228,9 @@ class _HomeScreenState extends State<HomeScreen> {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
-                color: isActive ? const Color(0xFF2563EB) : const Color(0xFF64748B),
+                color: isActive
+                    ? const Color(0xFF2563EB)
+                    : const Color(0xFF64748B),
               ),
             ),
           ],

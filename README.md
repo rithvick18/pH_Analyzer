@@ -1,103 +1,51 @@
-# pH Analyzer (Edge-Computing Mobile App)
+# pH Analyzer
 
-An offline-first Flutter application for precise, on-device pH prediction (0.00–14.00) from test strip images using **CIELAB color space transformation** and **natural cubic spline interpolation**.
+An **offline, experimental Flutter app** for estimating pH from test-strip photographs. It is not an independently validated measurement instrument. Results, saved history, and PDF reports identify readings as unvalidated estimates; demo readings are labeled separately.
 
----
+Supported release targets are Android and iOS. Other platform folders are development scaffolding, not a claim of production support.
 
-## Features
+## Capture and analysis
 
-- **100% Offline Edge Computing**: Performs color extraction, CIELAB delta calculations, and cubic spline interpolation locally without server calls.
-- **Enhanced Live Camera Controls**:
-  - **Tap-to-Focus & Exposure**: Touch anywhere on the camera preview to lock focus and exposure at that point with a visual indicator.
-  - **Flash / Torch Toggle**: Quickly toggle the device torch on/off for consistent illumination in low-light environments.
-  - **Macro Zoom Preset**: Auto-initializes at an optimal macro zoom level (~1.5x) for close-up test strip capture.
-  - **Live & Reference Feed Toggle**: Switch between the real-time device camera feed and bundled static reference image (`assets/Reference.jpeg`) for testing or demonstration.
-- **Flexible Region of Interest (ROI) Extraction**:
-  - Drag-and-drop region selection for **Dye Pad (Red)** with customizable ROI size and positioning.
-  - **Optional Reference Background (Blue)** ROI toggle. When disabled, the analyzer defaults to a calibrated standard reference paper baseline (`[245, 245, 240]`).
-  - Automatic outlier removal by trimming 15% extreme highlights and shadows.
-- **Gallery & EXIF Support**: Supports gallery image picking with automatic EXIF orientation normalization.
-- **Local History & Report Export**: Save test results locally with notes, thumbnails, and RGB values, and export/share PDF or image analysis reports.
+1. Capture a still image or choose a gallery photo. Camera permission failures show an error and never substitute a demo photo.
+2. On the normalized still photo, select the dye and reference-paper regions. Drawing and accessible move/resize buttons select the same image pixels. Reference paper can be disabled, with an explicit fixed-background warning.
+3. The app runs acquisition checks and CIELAB/spline matching on-device. Colors too far from the calibration return “cannot determine.” Ambiguous and boundary matches are flagged.
+4. Save the estimate with notes or explicitly share a PDF. Each new record retains the calibration hash, algorithm version, selected colors, quality warnings, source, and measurement time.
 
----
+No API key, account, `.env` asset, cloud strip recognition, or network call is needed. Android's main/release manifest requests no Internet or microphone permission. Photos may leave the app only when the user invokes the operating system's share sheet; OS backups follow device settings.
 
-## Prebuilt Calibration Reference Colors
+Demo mode must be explicitly selected. It uses `assets/Reference.jpeg` and produces labeled demo results.
 
-The app uses prebuilt calibration anchor points located in [`assets/calibration.json`](assets/calibration.json). Each anchor maps a known pH value to its expected RGB color for the dye pad (`dye_rgb`) and reference background paper (`bg_rgb`).
+## Calibration and honest precision
 
-### Current Prebuilt Standard Values
+`assets/calibration.json` contains eight experimental anchors. A candidate search covers **only the calibration's supported domain** at 0.1 pH intervals, also including exact anchors/endpoints. The display uses one decimal place. This is numerical resolution, not an accuracy claim.
 
-| Sample            | Median RGB          | Hex       | Approximate Appearance |
-| ----------------- | ------------------- | --------- | ---------------------- |
-| **NH₃**           | **(106, 100, 62)**  | `#6A643E` | Olive green            |
-| **KOH**           | **(56, 49, 27)**    | `#38311B` | Dark olive brown       |
-| **Soap solution** | **(87, 80, 56)**    | `#575038` | Olive brown            |
-| **Water**         | **(96, 87, 68)**    | `#605744` | Beige-brown            |
-| **Lemon**         | **(121, 91, 83)**   | `#795B53` | Salmon brown           |
-| **Acetic acid**   | **(155, 136, 131)** | `#9B8883` | Pale pink              |
-| **Dilute HCl**    | **(94, 47, 47)**    | `#5E2F2F` | Deep red               |
-| **HCl**           | **(86, 50, 44)**    | `#56322C` | Dark brick red         |
+Calibration schema 1 accepts a nonempty `id`, positive integer `version`, positive finite `max_color_distance`, and at least two unique anchors. Each anchor has finite pH in 0–14 and exactly three integer 0–255 channels for both `dye_rgb` and `bg_rgb`.
 
----
+The current maximum color distance (15), ambiguity warning (another candidate at least 1 pH away within 1 Lab distance), dye-luminance bounds (40–230), and clipping threshold (20%) are **provisional engineering guards**. They require validation against independently measured samples. No percentage confidence or exact-pH claim is made. The robust mean discards the darkest 5% and brightest 5% of dye pixels.
 
-## How to Change & Customize Calibration Values
+See [measurement validation](docs/measurement_validation.md) for the evidence required before making accuracy claims. Updating calibration changes its saved hash; existing results retain their original provenance.
 
-You can customize the calibration values to match your specific pH test strip brand (e.g., Hydrion, Macherey-Nagel, MQuant, or custom indicator dyes).
+## Development
 
-### Step 1: Open the Calibration File
-Navigate to the calibration file at:
-```path
-assets/calibration.json
-```
+The checked toolchain is Flutter **3.41.6**, Dart **3.11.4**. CI uses the same Flutter version.
 
-### Step 2: Edit or Add Anchors
-The JSON file contains an array of `anchors`. Each anchor requires three fields:
-
-```json
-{
-  "anchors": [
-    {
-      "ph": 7.0,
-      "dye_rgb": [60, 175, 80],
-      "bg_rgb": [250, 250, 245]
-    }
-  ]
-}
-```
-
-- **`ph`**: The known reference pH value (number between `0.0` and `14.0`).
-- **`dye_rgb`**: Array of 3 integers `[Red, Green, Blue]` (values `0`–`255`) representing the dye pad color for that pH under standard lighting.
-- **`bg_rgb`**: Array of 3 integers `[Red, Green, Blue]` (values `0`–`255`) representing the white reference background paper under the same lighting.
-
-> [!NOTE]
-> - Ensure you provide **at least 2 anchor points** across the target pH range so the natural cubic spline can interpolate intermediate values smoothly.
-> - Anchors do **not** need to be manually pre-sorted in the JSON; the app automatically sorts anchors by pH upon loading.
-
-### Step 3: Re-build or Hot Restart the App
-After modifying `assets/calibration.json`:
-1. Save the file.
-2. If running Flutter, perform a **Hot Restart** (`Shift + R` in terminal, or restart via IDE) so Flutter reloads the updated asset bundle.
-
----
-
-## How Calibration Analysis Works Under the Hood
-
-1. **Color Conversion**: `dye_rgb` and `bg_rgb` are converted from sRGB to **CIE 1976 $L^*a^*b^*$** color space (which aligns with human vision color perception).
-2. **Delta Calculation**: Color difference values $\Delta L^*$, $\Delta a^*$, $\Delta b^*$ are computed between the dye pad and the reference paper.
-3. **Cubic Spline Interpolation**: Independent natural cubic splines ($\text{Spline}_L$, $\text{Spline}_A$, $\text{Spline}_B$) are fit over the anchor points.
-4. **pH Prediction**: For any sample image, the app samples 141 candidate pH values ($0.00$ to $14.00$ with $0.1$ step size) on the spline curves and selects the pH that minimizes Euclidean distance in CIELAB space.
-
----
-
-## Running the Application & Tests
-
-### Run Unit Tests
-```bash
-flutter test
-```
-
-### Run Application
-```bash
+```sh
+flutter pub get --enforce-lockfile
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze --no-pub
+flutter test --no-pub
+python3 tool/check_offline_assets.py
 flutter run
 ```
 
+The regression suite covers calibration boundaries, invalid calibration, out-of-calibration rejection, image transforms, orientation, offline quality checks, provenance round trips, legacy records, storage errors, demo behavior, and PDF generation. Synthetic tests do not replace physical-device or laboratory validation.
+
+Large inputs are bounded to 25 MB / 24 megapixels and one frame. The selection view creates a lossless PNG snapshot capped at 6 megapixels; every ROI refers to that snapshot. Analysis decodes once for prediction and thumbnails. Saved images use UUID names under app documents; owned temporary and orphan files are cleaned conservatively.
+
+Existing Hive records remain readable and are labeled as legacy estimates with unknown validation. Unreadable storage is reported as an error rather than empty history. No automatic destructive reset is performed.
+
+## Release
+
+See [release setup and acceptance checks](docs/release.md). Android release builds no longer use debug signing. A production application ID and the owner's release credentials must be supplied; they are not invented or committed here. CI creates unsigned compile-validation artifacts only. iOS retains the existing development bundle configuration until the owner chooses the production identity.
+
+Local diagnostics store only a bounded list of error types, stages, and timestamps. Users can copy them from Settings; the app does not upload telemetry.

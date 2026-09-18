@@ -5,12 +5,17 @@ class CubicSpline {
   late final List<double> m;
 
   CubicSpline(List<double> xInput, List<double> yInput)
-      : x = List<double>.from(xInput),
-        y = List<double>.from(yInput) {
+    : x = List<double>.from(xInput),
+      y = List<double>.from(yInput) {
     if (x.length < 2 || x.length != y.length) {
-      throw ArgumentError('CubicSpline requires at least 2 points and equal length x and y lists.');
+      throw ArgumentError(
+        'CubicSpline requires at least 2 points and equal length x and y lists.',
+      );
     }
 
+    if (x.any((v) => !v.isFinite) || y.any((v) => !v.isFinite)) {
+      throw ArgumentError('Spline points must be finite.');
+    }
     final int n = x.length - 1;
     h = List<double>.filled(n, 0.0);
     for (int i = 0; i < n; i++) {
@@ -68,6 +73,7 @@ class CubicSpline {
   }
 
   double interpolate(double xVal) {
+    if (!xVal.isFinite) throw ArgumentError('Spline input must be finite.');
     final double clampedX = xVal.clamp(x.first, x.last);
     if (clampedX <= x.first) {
       return y.first;
@@ -96,7 +102,8 @@ class CubicSpline {
     final double a = (x[i + 1] - clampedX) / hi;
     final double bVal = (clampedX - x[i]) / hi;
 
-    final double yVal = a * y[i] +
+    final double yVal =
+        a * y[i] +
         bVal * y[i + 1] +
         ((a * a * a - a) * m[i] + (bVal * bVal * bVal - bVal) * m[i + 1]) *
             (hi * hi) /

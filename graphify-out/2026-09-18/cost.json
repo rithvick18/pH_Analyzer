@@ -1,0 +1,13 @@
+{
+  "runs": [
+    {
+      "date": "2026-09-17T18:12:42.402837+00:00",
+      "input_tokens": null,
+      "output_tokens": null,
+      "files": 119,
+      "token_usage_status": "Unavailable from agent interface; not zero"
+    }
+  ],
+  "total_input_tokens": null,
+  "total_output_tokens": null
+}

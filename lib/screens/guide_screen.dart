@@ -22,7 +22,11 @@ class GuideScreen extends StatelessWidget {
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Color(0xFF0F172A), size: 20),
+          icon: const Icon(
+            Icons.arrow_back_ios_new,
+            color: Color(0xFF0F172A),
+            size: 20,
+          ),
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
@@ -152,10 +156,7 @@ class GuideScreen extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFFEFF6FF),
-            Color(0xFFF8FAFC),
-          ],
+          colors: [Color(0xFFEFF6FF), Color(0xFFF8FAFC)],
         ),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE2E8F0), width: 1.0),
@@ -189,7 +190,7 @@ class GuideScreen extends StatelessWidget {
                 ),
                 SizedBox(height: 4),
                 Text(
-                  'Learn how to capture, calibrate, and measure exact pH levels using edge computing.',
+                  'Learn how to capture, calibrate, and measure estimated pH levels using edge computing.',
                   style: TextStyle(
                     fontSize: 13,
                     color: Color(0xFF64748B),
@@ -258,7 +259,10 @@ class GuideScreen extends StatelessWidget {
                       ),
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF1F5F9),
                         borderRadius: BorderRadius.circular(8),
@@ -303,22 +307,26 @@ class GuideScreen extends StatelessWidget {
         children: [
           _buildTipRow(
             isDo: true,
-            text: 'Read dye paper within 30 to 60 seconds after dipping in solution.',
+            text:
+                'Read dye paper within 30 to 60 seconds after dipping in solution.',
           ),
           const Divider(height: 20, color: Color(0xFFF1F5F9)),
           _buildTipRow(
             isDo: true,
-            text: 'Place reference paper on a flat, non-reflective surface under steady light.',
+            text:
+                'Place reference paper on a flat, non-reflective surface under steady light.',
           ),
           const Divider(height: 20, color: Color(0xFFF1F5F9)),
           _buildTipRow(
             isDo: false,
-            text: 'Avoid capturing images under direct colored lighting or severe shadows.',
+            text:
+                'Avoid capturing images under direct colored lighting or severe shadows.',
           ),
           const Divider(height: 20, color: Color(0xFFF1F5F9)),
           _buildTipRow(
             isDo: false,
-            text: 'Do not allow dye chemical bleeding to touch the white reference box.',
+            text:
+                'Do not allow dye chemical bleeding to touch the white reference box.',
           ),
         ],
       ),

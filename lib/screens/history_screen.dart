@@ -5,10 +5,19 @@ import '../models/prediction_record.dart';
 import '../services/export_service.dart';
 import '../services/history_service.dart';
 import '../services/ph_analyzer.dart';
+import 'package:image/image.dart' as image;
+import '../theme/lab_theme.dart';
 
-Map<String, int> _readImageDimensionsHistory(String path) {
-  final img = PHAnalyzer.loadAndNormalizeImage(path);
-  return {'w': img.width, 'h': img.height};
+Map<String, dynamic> _readImageDimensionsHistory(Map<String, dynamic> params) {
+  var decoded = PHAnalyzer.loadAndNormalizeImage(params['path'] as String);
+  if (params['legacy'] == true && decoded.width > decoded.height) {
+    decoded = image.copyRotate(decoded, angle: 90);
+  }
+  return {
+    'w': decoded.width,
+    'h': decoded.height,
+    'bytes': image.encodePng(decoded),
+  };
 }
 
 class HistoryScreen extends StatefulWidget {
@@ -21,6 +30,7 @@ class HistoryScreen extends StatefulWidget {
 class _HistoryScreenState extends State<HistoryScreen> {
   List<PredictionRecord> _records = [];
   bool _isLoading = true;
+  String? _loadError;
 
   @override
   void initState() {
@@ -29,13 +39,27 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Future<void> _loadHistory() async {
-    setState(() => _isLoading = true);
-    final records = await HistoryService.getAllRecords();
-    if (mounted) {
-      setState(() {
-        _records = records;
-        _isLoading = false;
-      });
+    if (!mounted) return;
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
+    try {
+      final records = await HistoryService.getAllRecords();
+      if (mounted) {
+        setState(() {
+          _records = records;
+          _isLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _loadError =
+              'Unable to read local history. Your saved records have not been cleared.';
+        });
+      }
     }
   }
 
@@ -44,14 +68,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('Delete Record'),
-            content: const Text('Are you sure you want to delete this pH analysis record?'),
+            content: const Text(
+              'Are you sure you want to delete this pH analysis record?',
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
                 child: const Text('Cancel'),
               ),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                  foregroundColor: Colors.white,
+                ),
                 onPressed: () => Navigator.of(context).pop(true),
                 child: const Text('Delete'),
               ),
@@ -61,15 +90,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         false;
   }
 
-  Color _getPhColor(double ph) {
-    if (ph < 3.0) return const Color(0xFFE53935);
-    if (ph < 5.0) return const Color(0xFFFB8C00);
-    if (ph < 6.5) return const Color(0xFFFDD835);
-    if (ph <= 7.5) return const Color(0xFF43A047);
-    if (ph < 10.0) return const Color(0xFF1E88E5);
-    if (ph < 12.0) return const Color(0xFF3949AB);
-    return const Color(0xFF8E24AA);
-  }
+  Color _getPhColor(double ph) => LabTheme.getPhColor(ph);
 
   @override
   Widget build(BuildContext context) {
@@ -89,11 +110,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   context: context,
                   builder: (context) => AlertDialog(
                     title: const Text('Clear All History'),
-                    content: const Text('This will permanently delete all saved pH records and images from local storage.'),
+                    content: const Text(
+                      'This will permanently delete all saved pH records and images from local storage.',
+                    ),
                     actions: [
-                      TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text('Cancel'),
+                      ),
                       ElevatedButton(
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          foregroundColor: Colors.white,
+                        ),
                         onPressed: () => Navigator.pop(context, true),
                         child: const Text('Clear All'),
                       ),
@@ -101,8 +130,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   ),
                 );
                 if (confirm == true) {
-                  await HistoryService.clearAll();
-                  _loadHistory();
+                  try {
+                    await HistoryService.clearAll();
+                    if (mounted) _loadHistory();
+                  } catch (_) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Unable to clear history. Please retry.',
+                          ),
+                        ),
+                      );
+                    }
+                  }
                 }
               },
             ),
@@ -110,141 +151,214 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _records.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.history_toggle_off, size: 72, color: Colors.grey.withValues(alpha: 0.5)),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No saved predictions yet',
-                        style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Saved edge-computing readings will appear here.',
-                        style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
-                      ),
-                    ],
+          : _loadError != null
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(_loadError!),
                   ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  itemCount: _records.length,
-                  itemBuilder: (context, index) {
-                    final record = _records[index];
-                    final phColor = _getPhColor(record.phValue);
-                    final file = File(record.imagePath);
+                  TextButton(
+                    onPressed: _loadHistory,
+                    child: const Text('Retry history'),
+                  ),
+                ],
+              ),
+            )
+          : _records.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.history_toggle_off,
+                    size: 72,
+                    color: Colors.grey.withValues(alpha: 0.5),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No saved predictions yet',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Saved edge-computing readings will appear here.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              itemCount: _records.length,
+              itemBuilder: (context, index) {
+                final record = _records[index];
+                final phColor = _getPhColor(record.phValue);
+                final file = File(record.imagePath);
 
-                    return Dismissible(
-                      key: ValueKey(record.id),
-                      direction: DismissDirection.endToStart,
-                      confirmDismiss: (_) => _confirmDelete(context),
-                      onDismissed: (_) async {
-                        await HistoryService.deleteRecord(record);
-                        if (!context.mounted) return;
+                return Dismissible(
+                  key: ValueKey(record.id),
+                  direction: DismissDirection.endToStart,
+                  confirmDismiss: (_) async {
+                    if (!await _confirmDelete(context)) return false;
+                    try {
+                      await HistoryService.deleteRecord(record);
+                      return true;
+                    } catch (_) {
+                      if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Record deleted')),
+                          const SnackBar(
+                            content: Text(
+                              'Unable to delete this record. Please retry.',
+                            ),
+                          ),
+                        );
+                      }
+                      return false;
+                    }
+                  },
+                  onDismissed: (_) {
+                    setState(
+                      () => _records.removeWhere((r) => r.id == record.id),
+                    );
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Record deleted')),
+                    );
+                  },
+                  background: Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    alignment: Alignment.centerRight,
+                    child: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                  ),
+                  child: Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 2,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => _RecordDetailScreen(record: record),
+                          ),
                         );
                       },
-                      background: Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        decoration: BoxDecoration(
-                          color: Colors.redAccent,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        alignment: Alignment.centerRight,
-                        child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
-                      ),
-                      child: Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        elevation: 2,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(16),
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => _RecordDetailScreen(record: record),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 68,
+                              height: 68,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                color:
+                                    theme.colorScheme.surfaceContainerHighest,
                               ),
-                            );
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.all(12.0),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 68,
-                                  height: 68,
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(12),
-                                    color: theme.colorScheme.surfaceContainerHighest,
-                                  ),
-                                  clipBehavior: Clip.antiAlias,
-                                  child: file.existsSync()
-                                      ? Image.file(file, fit: BoxFit.cover)
-                                      : const Icon(Icons.image_not_supported, color: Colors.grey),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                              clipBehavior: Clip.antiAlias,
+                              child: file.existsSync()
+                                  ? Image.file(file, fit: BoxFit.cover)
+                                  : const Icon(
+                                      Icons.image_not_supported,
+                                      color: Colors.grey,
+                                    ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
                                     children: [
-                                      Row(
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                            decoration: BoxDecoration(
-                                              color: phColor.withValues(alpha: 0.15),
-                                              borderRadius: BorderRadius.circular(12),
-                                              border: Border.all(color: phColor, width: 1.5),
-                                            ),
-                                            child: Text(
-                                              'pH ${record.phValue.toStringAsFixed(2)}',
-                                              style: TextStyle(
-                                                color: phColor,
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 14,
-                                              ),
-                                            ),
-                                          ),
-                                          const Spacer(),
-                                          Text(
-                                            '${record.timestamp.month}/${record.timestamp.day}/${record.timestamp.year}',
-                                            style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        record.note != null && record.note!.isNotEmpty
-                                            ? record.note!
-                                            : 'No additional notes',
-                                        style: theme.textTheme.bodySmall?.copyWith(
-                                          color: record.note != null && record.note!.isNotEmpty
-                                              ? theme.colorScheme.onSurface
-                                              : Colors.grey,
-                                          fontStyle: record.note != null && record.note!.isNotEmpty
-                                              ? FontStyle.normal
-                                              : FontStyle.italic,
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 4,
                                         ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
+                                        decoration: BoxDecoration(
+                                          color: phColor.withValues(
+                                            alpha: 0.15,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          border: Border.all(
+                                            color: phColor,
+                                            width: 1.5,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          'pH ${record.phValue.toStringAsFixed(1)}',
+                                          style: TextStyle(
+                                            color: phColor,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      Text(
+                                        '${record.timestamp.month}/${record.timestamp.day}/${record.timestamp.year}',
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(color: Colors.grey),
                                       ),
                                     ],
                                   ),
-                                ),
-                                const Icon(Icons.chevron_right, color: Colors.grey),
-                              ],
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    record.statusLabel,
+                                    style: theme.textTheme.bodySmall,
+                                  ),
+                                  Text(
+                                    record.note != null &&
+                                            record.note!.isNotEmpty
+                                        ? record.note!
+                                        : 'No additional notes',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color:
+                                          record.note != null &&
+                                              record.note!.isNotEmpty
+                                          ? theme.colorScheme.onSurface
+                                          : Colors.grey,
+                                      fontStyle:
+                                          record.note != null &&
+                                              record.note!.isNotEmpty
+                                          ? FontStyle.normal
+                                          : FontStyle.italic,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
+                            const Icon(Icons.chevron_right, color: Colors.grey),
+                          ],
                         ),
                       ),
-                    );
-                  },
-                ),
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }
@@ -259,6 +373,8 @@ class _RecordDetailScreen extends StatefulWidget {
 }
 
 class _RecordDetailScreenState extends State<_RecordDetailScreen> {
+  Uint8List? _normalizedImage;
+  bool _sharing = false;
   int _imgWidth = 0;
   int _imgHeight = 0;
 
@@ -272,9 +388,13 @@ class _RecordDetailScreenState extends State<_RecordDetailScreen> {
     final file = File(widget.record.imagePath);
     if (!file.existsSync()) return;
     try {
-      final dims = await compute(_readImageDimensionsHistory, file.path);
+      final dims = await compute(_readImageDimensionsHistory, {
+        'path': file.path,
+        'legacy': widget.record.measurement == null,
+      });
       if (mounted) {
         setState(() {
+          _normalizedImage = dims['bytes'] as Uint8List;
           _imgWidth = dims['w'] as int;
           _imgHeight = dims['h'] as int;
         });
@@ -282,15 +402,7 @@ class _RecordDetailScreenState extends State<_RecordDetailScreen> {
     } catch (_) {}
   }
 
-  Color _getPhColor(double ph) {
-    if (ph < 3.0) return const Color(0xFFE53935);
-    if (ph < 5.0) return const Color(0xFFFB8C00);
-    if (ph < 6.5) return const Color(0xFFFDD835);
-    if (ph <= 7.5) return const Color(0xFF43A047);
-    if (ph < 10.0) return const Color(0xFF1E88E5);
-    if (ph < 12.0) return const Color(0xFF3949AB);
-    return const Color(0xFF8E24AA);
-  }
+  Color _getPhColor(double ph) => LabTheme.getPhColor(ph);
 
   @override
   Widget build(BuildContext context) {
@@ -299,27 +411,34 @@ class _RecordDetailScreenState extends State<_RecordDetailScreen> {
     final phColor = _getPhColor(record.phValue);
     final file = File(record.imagePath);
 
-    final bool hasOverlays = record.dyeLeft != null &&
-        record.dyeTop != null &&
-        record.dyeWidth != null &&
-        record.dyeHeight != null &&
+    final Rect? dyeRect =
+        record.dyeLeft != null &&
+            record.dyeTop != null &&
+            record.dyeWidth != null &&
+            record.dyeHeight != null
+        ? Rect.fromLTWH(
+            record.dyeLeft!,
+            record.dyeTop!,
+            record.dyeWidth!,
+            record.dyeHeight!,
+          )
+        : null;
+    final Rect? bgRect =
         record.bgLeft != null &&
-        record.bgTop != null &&
-        record.bgWidth != null &&
-        record.bgHeight != null;
-
-    final Rect? dyeRect = hasOverlays
-        ? Rect.fromLTWH(record.dyeLeft!, record.dyeTop!, record.dyeWidth!, record.dyeHeight!)
+            record.bgTop != null &&
+            record.bgWidth != null &&
+            record.bgHeight != null
+        ? Rect.fromLTWH(
+            record.bgLeft!,
+            record.bgTop!,
+            record.bgWidth!,
+            record.bgHeight!,
+          )
         : null;
-    final Rect? bgRect = hasOverlays
-        ? Rect.fromLTWH(record.bgLeft!, record.bgTop!, record.bgWidth!, record.bgHeight!)
-        : null;
+    final hasOverlays = dyeRect != null;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Prediction Detail'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('Prediction Detail'), centerTitle: true),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Column(
@@ -332,40 +451,76 @@ class _RecordDetailScreenState extends State<_RecordDetailScreen> {
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: phColor, width: 2),
                 boxShadow: [
-                  BoxShadow(color: phColor.withValues(alpha: 0.15), blurRadius: 15, offset: const Offset(0, 6)),
+                  BoxShadow(
+                    color: phColor.withValues(alpha: 0.15),
+                    blurRadius: 15,
+                    offset: const Offset(0, 6),
+                  ),
                 ],
               ),
               child: Column(
                 children: [
-                  Text('STORED pH READING', style: theme.textTheme.labelMedium?.copyWith(color: Colors.grey)),
+                  Text(
+                    'STORED pH ESTIMATE',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: Colors.grey,
+                    ),
+                  ),
                   const SizedBox(height: 6),
                   Text(
-                    record.phValue.toStringAsFixed(2),
-                    style: TextStyle(fontSize: 54, fontWeight: FontWeight.w900, color: phColor, height: 1.0),
+                    record.phValue.toStringAsFixed(1),
+                    style: TextStyle(
+                      fontSize: 54,
+                      fontWeight: FontWeight.w900,
+                      color: phColor,
+                      height: 1.0,
+                    ),
                   ),
                   const SizedBox(height: 12),
+                  Text(record.statusLabel),
+                  if (record.measurement != null)
+                    ...record.measurement!.warnings.map(
+                      (w) => Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(w),
+                      ),
+                    ),
                   Text(
                     'Recorded on ${record.timestamp}',
-                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: Colors.grey,
+                    ),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 24),
             if (record.note != null && record.note!.isNotEmpty) ...[
-              Text('Notes / Observations', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                'Notes / Observations',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.5,
+                  ),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(record.note!, style: const TextStyle(fontSize: 14)),
               ),
               const SizedBox(height: 24),
             ],
-            Text('Captured Strip Image & Overlays', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            Text(
+              'Captured Strip Image & Overlays',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             const SizedBox(height: 12),
             Container(
               height: 340,
@@ -375,16 +530,23 @@ class _RecordDetailScreenState extends State<_RecordDetailScreen> {
               ),
               clipBehavior: Clip.antiAlias,
               child: !file.existsSync()
-                  ? const Center(child: Text('Image file not found on local device'))
+                  ? const Center(
+                      child: Text('Image file not found on local device'),
+                    )
                   : Stack(
                       fit: StackFit.expand,
                       children: [
-                        Image.file(file, fit: BoxFit.contain),
+                        if (_normalizedImage != null)
+                          Image.memory(_normalizedImage!, fit: BoxFit.contain)
+                        else
+                          const Center(
+                            child: Text('Image preview unavailable'),
+                          ),
                         if (hasOverlays && _imgWidth > 0 && _imgHeight > 0)
                           CustomPaint(
                             painter: _StoredROIPainter(
-                              dyeRect: dyeRect!,
-                              bgRect: bgRect!,
+                              dyeRect: dyeRect,
+                              bgRect: bgRect,
                               imgWidth: _imgWidth,
                               imgHeight: _imgHeight,
                             ),
@@ -394,28 +556,60 @@ class _RecordDetailScreenState extends State<_RecordDetailScreen> {
             ),
             const SizedBox(height: 28),
             ElevatedButton.icon(
-              onPressed: () async {
-                if (!file.existsSync() || dyeRect == null || bgRect == null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Cannot export report without image and ROI overlay data.')),
-                  );
-                  return;
-                }
-                await ExportService.sharePhReport(
-                  imagePath: record.imagePath,
-                  dyeRect: dyeRect,
-                  bgRect: bgRect,
-                  phValue: record.phValue,
-                  note: record.note,
-                );
-              },
+              onPressed: _sharing
+                  ? null
+                  : () async {
+                      if (!file.existsSync() || dyeRect == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Cannot export report without image and ROI overlay data.',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+                      setState(() => _sharing = true);
+                      try {
+                        final box = context.findRenderObject() as RenderBox?;
+                        await ExportService.sharePhReport(
+                          imagePath: record.imagePath,
+                          dyeRect: dyeRect,
+                          bgRect: bgRect,
+                          phValue: record.phValue,
+                          note: record.note,
+                          measurement: record.measurement,
+                          measuredAt: record.timestamp,
+                          sharePositionOrigin: box == null
+                              ? null
+                              : box.localToGlobal(Offset.zero) & box.size,
+                        );
+                      } catch (_) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Unable to export this record. Check the saved image and available storage.',
+                              ),
+                            ),
+                          );
+                        }
+                      } finally {
+                        if (mounted) setState(() => _sharing = false);
+                      }
+                    },
               icon: const Icon(Icons.picture_as_pdf),
-              label: const Text('Export & Share PDF Report', style: TextStyle(fontWeight: FontWeight.bold)),
+              label: const Text(
+                'Export & Share PDF Report',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 backgroundColor: theme.colorScheme.primary,
                 foregroundColor: theme.colorScheme.onPrimary,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
               ),
             ),
           ],
@@ -427,7 +621,7 @@ class _RecordDetailScreenState extends State<_RecordDetailScreen> {
 
 class _StoredROIPainter extends CustomPainter {
   final Rect dyeRect;
-  final Rect bgRect;
+  final Rect? bgRect;
   final int imgWidth;
   final int imgHeight;
 
@@ -440,7 +634,12 @@ class _StoredROIPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (imgWidth <= 0 || imgHeight <= 0 || size.width <= 0 || size.height <= 0) return;
+    if (imgWidth <= 0 ||
+        imgHeight <= 0 ||
+        size.width <= 0 ||
+        size.height <= 0) {
+      return;
+    }
 
     final double scaleX = size.width / imgWidth;
     final double scaleY = size.height / imgHeight;
@@ -458,12 +657,14 @@ class _StoredROIPainter extends CustomPainter {
       dyeRect.bottom * scale + offsetY,
     );
 
-    final mappedBg = Rect.fromLTRB(
-      bgRect.left * scale + offsetX,
-      bgRect.top * scale + offsetY,
-      bgRect.right * scale + offsetX,
-      bgRect.bottom * scale + offsetY,
-    );
+    final mappedBg = bgRect == null
+        ? null
+        : Rect.fromLTRB(
+            bgRect!.left * scale + offsetX,
+            bgRect!.top * scale + offsetY,
+            bgRect!.right * scale + offsetX,
+            bgRect!.bottom * scale + offsetY,
+          );
 
     final redBorder = Paint()
       ..color = Colors.redAccent
@@ -475,9 +676,13 @@ class _StoredROIPainter extends CustomPainter {
       ..color = Colors.blueAccent
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.5;
-    canvas.drawRect(mappedBg, blueBorder);
+    if (mappedBg != null) canvas.drawRect(mappedBg, blueBorder);
   }
 
   @override
-  bool shouldRepaint(covariant _StoredROIPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _StoredROIPainter oldDelegate) =>
+      oldDelegate.dyeRect != dyeRect ||
+      oldDelegate.bgRect != bgRect ||
+      oldDelegate.imgWidth != imgWidth ||
+      oldDelegate.imgHeight != imgHeight;
 }
