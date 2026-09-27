@@ -25,7 +25,7 @@ The project keeps the existing development team and development bundle identifie
 - Verify camera failure never shows or records a demo without explicit selection. Verify every demo, unvalidated result, and legacy record stays identified after saving and sharing.
 - Test missing/corrupted history, storage exhaustion, interrupted saves, older records, orphan cleanup, and user-controlled deletion. Do not erase history to hide an initialization failure.
 - Test large text, screen readers, move/resize controls, small phones, reduced motion, long/Unicode notes, and iPad sharing.
-- Inspect a release bundle for `.env` assets or credentials, and inspect the merged Android manifest to ensure no dependency adds Internet or microphone permission.
+- Inspect a release bundle for `.env` assets or credentials, and inspect the merged Android manifest to ensure no dependency adds unauthorized permissions such as microphone permission.
 - Approve the measurement validation described in `measurement_validation.md`, or retain experimental labeling and limit the release claims accordingly.
 - Use a small beta first and monitor actionable user-reported diagnostics. Keep a known-good build and retain schema compatibility for rollback.
 
