@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'dart:ui' show Rect;
+import 'package:ph_analyzer/models/calibration_data.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:ph_analyzer/services/color_converter.dart';
@@ -7,6 +9,37 @@ import 'package:ph_analyzer/services/ph_analyzer.dart';
 import 'package:ph_analyzer/services/robust_extractor.dart';
 
 void main() {
+  group('Bundled calibration v2', () {
+    final calibration = CalibrationData.fromJsonString(
+      File('assets/calibration.json').readAsStringSync(),
+    );
+
+    test('recovers every supplied reference using its measured background', () {
+      final analyzer = PHAnalyzer()..trainFromCalibrationData(calibration);
+      expect(calibration.version, 2);
+      for (final anchor in calibration.anchors) {
+        final result = analyzer.estimateFromRgb(anchor.dyeRgb, anchor.bgRgb);
+        expect(result.ph, closeTo(anchor.ph, 1e-9));
+        expect(result.colorDistance, closeTo(0, 1e-9));
+        expect(
+          result.warnings.any((w) => w.startsWith('Interpolated')),
+          isFalse,
+        );
+      }
+    });
+
+    test('estimates an unmeasured color and labels its reference interval', () {
+      final analyzer = PHAnalyzer()..trainFromCalibrationData(calibration);
+      final result = analyzer.estimateFromRgb([137, 51, 50], [191, 191, 191]);
+      expect(result.ph, greaterThan(0));
+      expect(result.ph, lessThan(1.5));
+      expect(
+        result.warnings,
+        contains(contains('between measured references at pH 0.0 and 1.5')),
+      );
+    });
+  });
+
   const String sampleCalibrationJson = '''
 {
   "anchors": [

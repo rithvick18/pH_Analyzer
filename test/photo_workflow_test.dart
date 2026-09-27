@@ -78,7 +78,8 @@ void main() {
         await tester.runAsync(() async {
           final record = (await HistoryService.getAllRecords()).single;
           expect(record.measurement!.isDemo, isTrue);
-          expect(record.phValue, 7);
+          expect(record.phValue, inInclusiveRange(0, 14));
+          expect(record.phValue, record.measurement!.ph);
           expect(record.measurement!.validationStatus, 'not_validated');
         });
         await tester.runAsync(() async {

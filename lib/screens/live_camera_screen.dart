@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -8,9 +9,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'roi_selector.dart';
 import '../services/diagnostics.dart';
-import '../services/automatic_dye_detector.dart';
-import '../services/image_preparation.dart';
-import 'result_screen.dart';
 
 class LiveCameraScreen extends StatefulWidget {
   final Future<List<CameraDescription>> Function() cameraProvider;
@@ -29,9 +27,6 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
   bool _selecting = false;
   bool _demo = false;
   bool _active = true;
-  bool _scanning = false;
-  Timer? _scanTimer;
-  String _scanStatus = 'Point the camera at one dye patch';
   String? _error;
   double _zoom = 1;
   double _minZoom = 1;
@@ -55,8 +50,6 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
   }
 
   Future<void> _release() async {
-    _scanTimer?.cancel();
-    _scanTimer = null;
     final camera = _camera;
     _camera = null;
     if (camera != null) await _disposeCamera(camera);
@@ -121,9 +114,14 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
         try {
           final lower = await pending.getMinZoomLevel();
           final upper = await pending.getMaxZoomLevel();
-          if (lower.isFinite && upper.isFinite && lower > 0 && upper >= lower) {
-            minZoom = lower;
-            maxZoom = upper;
+          if (lower.isFinite &&
+              upper.isFinite &&
+              lower > 0 &&
+              upper >= lower &&
+              lower <= 5 &&
+              upper >= 1) {
+            minZoom = math.max(1, lower);
+            maxZoom = math.min(5, upper);
           }
         } on CameraException {
           // Optional controls must not prevent still capture.
@@ -159,11 +157,6 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
           _exposure = 0.0.clamp(minExposure, maxExposure);
           _flash = FlashMode.off;
         });
-        _scanTimer?.cancel();
-        _scanTimer = Timer.periodic(
-          const Duration(seconds: 2),
-          (_) => unawaited(_scanForDye()),
-        );
       } on CameraException catch (e) {
         if (mounted && generation == _generation) {
           setState(() {
@@ -225,93 +218,6 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
     }
   }
 
-  Future<void> _scanForDye() async {
-    final camera = _camera;
-    if (_scanning ||
-        _capturing ||
-        _selecting ||
-        _demo ||
-        !_active ||
-        camera == null ||
-        !camera.value.isInitialized) {
-      return;
-    }
-    _scanning = true;
-    final generation = _generation;
-    String? photoPath;
-    String? normalizedPath;
-    var openedResult = false;
-    try {
-      final capturedAt = DateTime.now();
-      final photo = await camera.takePicture();
-      photoPath = photo.path;
-      if (!mounted || generation != _generation || !_active) return;
-      final directory = await getTemporaryDirectory();
-      final prepared = await compute(prepareImage, {
-        'path': photoPath,
-        'tempDirPath': directory.path,
-      });
-      normalizedPath = prepared['path'] as String;
-      final calibration = await rootBundle.loadString(
-        'assets/calibration.json',
-      );
-      final bounds = await compute(detectDyePaper, {
-        'path': normalizedPath,
-        'calibration': calibration,
-      });
-      if (!mounted || generation != _generation || !_active) return;
-      if (bounds == null) {
-        setState(
-          () => _scanStatus = 'No dye paper detected — point at one dye patch',
-        );
-        return;
-      }
-      setState(() => _scanStatus = 'Dye patch detected');
-      _selecting = true;
-      _generation++;
-      _scanTimer?.cancel();
-      await _enqueue(_release);
-      if (!mounted) return;
-      openedResult = true;
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => ResultScreen(
-            imagePath: normalizedPath!,
-            dyeRect: Rect.fromLTRB(bounds[0], bounds[1], bounds[2], bounds[3]),
-            source: 'camera',
-            capturedAt: capturedAt,
-          ),
-        ),
-      );
-    } catch (error) {
-      Diagnostics.record('automatic_capture', error);
-      if (mounted && generation == _generation) {
-        setState(() => _scanStatus = 'Hold steady and point at one dye patch');
-      }
-    } finally {
-      if (photoPath != null) {
-        try {
-          await File(photoPath).delete();
-        } on FileSystemException {
-          /* temp cleanup */
-        }
-      }
-      if (normalizedPath != null) {
-        try {
-          await File(normalizedPath).delete();
-        } on FileSystemException {
-          /* temp cleanup */
-        }
-      }
-      _selecting = false;
-      _scanning = false;
-      if (openedResult && mounted && _active && !_demo) {
-        setState(() => _scanStatus = 'Point the camera at one dye patch');
-      }
-      if (mounted && _active && !_demo && _camera == null) await _initialize();
-    }
-  }
-
   Future<void> _showRegions(
     String path,
     String source,
@@ -360,7 +266,6 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
 
   Future<void> _capture() async {
     if (_capturing ||
-        _scanning ||
         (!_demo &&
             (_camera == null || !_camera!.value.isInitialized || !_active))) {
       return;
@@ -586,7 +491,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
               child: Text(
                 _demo
                     ? 'Demo image: select a dye region to continue.'
-                    : _scanStatus,
+                    : 'Point at one dye patch, then tap Capture.',
               ),
             ),
             Padding(
@@ -595,16 +500,14 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
                 width: double.infinity,
                 child: FilledButton.icon(
                   key: const Key('capture_button'),
-                  onPressed: !_capturing && !_scanning && (_demo || ready)
-                      ? _capture
-                      : null,
+                  onPressed: !_capturing && (_demo || ready) ? _capture : null,
                   icon: const Icon(Icons.camera_alt),
                   label: Text(
                     _capturing
                         ? 'Preparing photo…'
                         : _demo
                         ? 'Use labeled demo'
-                        : 'Capture manually',
+                        : 'Capture',
                   ),
                 ),
               ),

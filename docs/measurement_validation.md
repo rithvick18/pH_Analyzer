@@ -13,3 +13,7 @@ Before evaluating, specify acceptable error, bias, repeatability, and rejection 
 Tune color-distance and image-quality rejection thresholds only on development data, then evaluate untouched holdout data. Calibrate any uncertainty interval empirically. Never turn a raw color-distance score into a percentage confidence without evidence.
 
 Release gate: the owner approves a written validation report and operating envelope. Until then, retain the unvalidated estimate labeling and avoid accuracy or suitability claims. No reference dataset or independently measured results were supplied with this repository.
+
+## User-created dye profiles
+
+User-created calibration profiles record known pH anchors and observed dye/reference colors for one dye or strip product. The app interpolates within those anchors and rejects distant colors, but this is an engineering estimate. The profile's name, product, lot, pH range, ID, version, and hash support provenance; they are not evidence of measurement accuracy. Independent testing against reference measurements across phones, lighting, lots, and the full claimed range is still required before an accuracy claim.

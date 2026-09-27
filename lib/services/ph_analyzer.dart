@@ -1,8 +1,6 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' show Rect;
-import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:image/image.dart' as img;
 import '../models/calibration_data.dart';
@@ -46,9 +44,9 @@ class PHAnalyzer {
   CubicSpline? _splineA;
   CubicSpline? _splineB;
   String get calibrationId => '${_calibration!.id}:v${_calibration!.version}';
-  String get calibrationHash => sha256
-      .convert(utf8.encode(jsonEncode(_calibration!.toJson())))
-      .toString();
+  String get calibrationHash => _calibration!.hash;
+  String get calibrationProfileId => _calibration!.id;
+  int get calibrationVersion => _calibration!.version;
 
   Future<void> trainFromAssets() async => trainFromJsonString(
     await rootBundle.loadString('assets/calibration.json'),
@@ -194,8 +192,20 @@ class PHAnalyzer {
     final ambiguous = distances.entries.any(
       (e) => (e.key - best).abs() >= 1 && e.value <= minDistance + 1,
     );
+    String? interpolationWarning;
+    if (!calibration.anchors.any((anchor) => (anchor.ph - best).abs() < 1e-9)) {
+      final above = calibration.anchors.indexWhere(
+        (anchor) => anchor.ph > best,
+      );
+      final from = calibration.anchors[above - 1].ph;
+      final to = calibration.anchors[above].ph;
+      interpolationWarning =
+          'Interpolated estimate between measured references at pH $from and $to. '
+          'The 0.1 pH search interval is not a statement of accuracy.';
+    }
     return PhEstimate(best, minDistance, target, [
       'Experimental calibration; accuracy and quality thresholds have not been independently validated.',
+      ?interpolationWarning,
       if (ambiguous)
         'Ambiguous color match: substantially different pH values have similar colors.',
       if (best == lower || best == upper)

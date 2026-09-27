@@ -12,9 +12,12 @@ import 'guide_screen.dart';
 import 'history_screen.dart';
 import 'live_camera_screen.dart';
 import 'roi_selector.dart';
+import 'calibration_manager_screen.dart';
+import 'gemini_settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final bool openCaptureOnStart;
+  const HomeScreen({super.key, this.openCaptureOnStart = false});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -31,7 +34,16 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     HistoryService.revision.addListener(_loadRecentRecords);
     Future.microtask(() => _loadRecentRecords());
-    _recoverLostImage();
+    if (!widget.openCaptureOnStart) _recoverLostImage();
+    if (widget.openCaptureOnStart) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.of(context)
+              .push(MaterialPageRoute(builder: (_) => const LiveCameraScreen()))
+              .then((_) => _loadRecentRecords());
+        }
+      });
+    }
   }
 
   @override
@@ -304,11 +316,37 @@ class _HomeScreenState extends State<HomeScreen> {
                     'Local Natural Cubic Spline over CIELAB space',
                   ),
                 ),
+                ListTile(
+                  leading: const Icon(Icons.tune, color: Color(0xFF2563EB)),
+                  title: const Text('Calibration Manager'),
+                  subtitle: const Text('Create and select dye profiles'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const CalibrationManagerScreen(),
+                      ),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.key, color: Color(0xFF2563EB)),
+                  title: const Text('Image validation mode'),
+                  subtitle: const Text('Set up Gemini or use manual mode'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const GeminiSettingsScreen(),
+                      ),
+                    );
+                  },
+                ),
                 const ListTile(
                   leading: Icon(Icons.security, color: Color(0xFF2563EB)),
                   title: Text('Privacy First'),
                   subtitle: Text(
-                    'Photos are analyzed on this device. Sharing a report is always your choice.',
+                    'With Gemini enabled, selected photos are sent for dye-pad checks. Manual mode keeps photos local. pH estimation and history remain on this device.',
                   ),
                 ),
                 ListTile(
@@ -518,7 +556,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(width: 8),
         const Text(
-          'On-device analysis',
+          'Local pH analysis',
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w500,

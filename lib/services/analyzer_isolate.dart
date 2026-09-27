@@ -4,6 +4,7 @@ import 'dart:ui' show Rect;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:image/image.dart' as img;
 import '../models/measurement.dart';
+import '../models/calibration_data.dart';
 import 'image_geometry.dart';
 import 'ph_analyzer.dart';
 import 'robust_extractor.dart';
@@ -17,10 +18,13 @@ class AnalyzerService {
     Rect? bgRect,
     String source = 'gallery',
     DateTime? capturedAt,
+    CalibrationData? calibration,
+    String? validationReason,
+    bool manualMode = false,
   }) async {
-    final calibrationJson = await rootBundle.loadString(
-      'assets/calibration.json',
-    );
+    final calibrationJson = calibration == null
+        ? await rootBundle.loadString('assets/calibration.json')
+        : await Future.value(calibration.toJsonString());
     final measuredAt = capturedAt ?? DateTime.now();
     return Isolate.run(
       () => analyzeWithCalibration(
@@ -30,6 +34,8 @@ class AnalyzerService {
         source: source,
         measuredAt: measuredAt,
         calibrationJson: calibrationJson,
+        validationReason: validationReason,
+        manualMode: manualMode,
       ),
     );
   }
@@ -41,6 +47,8 @@ class AnalyzerService {
     required String source,
     required DateTime measuredAt,
     required String calibrationJson,
+    String? validationReason,
+    bool manualMode = false,
   }) {
     if (!const ['camera', 'gallery', 'demo'].contains(source)) {
       throw ArgumentError('Unknown capture source.');
@@ -83,11 +91,23 @@ class AnalyzerService {
         measuredAt: measuredAt,
         calibrationId: analyzer.calibrationId,
         calibrationHash: analyzer.calibrationHash,
+        calibrationProfileId: analyzer.calibrationProfileId,
+        calibrationVersion: analyzer.calibrationVersion,
         dyeRgb: dyeRgb,
         backgroundRgb: bgRgb,
         deltaLab: estimate.deltaLab,
         colorDistance: estimate.colorDistance,
         source: source,
+        validationStatus: validationReason != null
+            ? 'gemini_validated'
+            : manualMode
+            ? 'manual_unvalidated'
+            : 'not_validated',
+        validationReason:
+            validationReason ??
+            (manualMode
+                ? 'Manual mode: no AI dye-pad identity check was performed. pH accuracy is not independently validated.'
+                : 'Strip identity and measurement accuracy have not been independently validated.'),
         imageWidth: image.width,
         imageHeight: image.height,
         warnings: [

@@ -7,6 +7,7 @@ import '../services/history_service.dart';
 import '../services/ph_analyzer.dart';
 import '../theme/lab_theme.dart';
 import '../models/measurement.dart';
+import '../models/calibration_data.dart';
 import '../services/diagnostics.dart';
 
 class ResultScreen extends StatefulWidget {
@@ -15,6 +16,10 @@ class ResultScreen extends StatefulWidget {
   final Rect? bgRect;
   final String source;
   final DateTime? capturedAt;
+  final CalibrationData? calibration;
+  final String calibrationName;
+  final String? validationReason;
+  final bool manualMode;
 
   const ResultScreen({
     super.key,
@@ -23,6 +28,10 @@ class ResultScreen extends StatefulWidget {
     this.bgRect,
     this.source = 'gallery',
     this.capturedAt,
+    this.calibration,
+    this.calibrationName = 'Bundled experimental',
+    this.validationReason,
+    this.manualMode = false,
   });
 
   @override
@@ -79,6 +88,9 @@ class _ResultScreenState extends State<ResultScreen>
         bgRect: widget.bgRect,
         source: widget.source,
         capturedAt: widget.capturedAt,
+        calibration: widget.calibration,
+        validationReason: widget.validationReason,
+        manualMode: widget.manualMode,
       );
       if (!mounted) return;
       setState(() {
@@ -292,6 +304,10 @@ class _ResultScreenState extends State<ResultScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  Text(
+                    'Calibration: ${widget.calibrationName}',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
                   _buildHeroPhGauge(ph, phColor, category),
                   const SizedBox(height: 24),
                   const Text(
@@ -829,10 +845,10 @@ Delta Lab: ΔL*=${deltaLab[0].toStringAsFixed(1)}, Δa*=${deltaLab[1].toStringAs
         children: [
           const Icon(Icons.check_circle_outline, color: LabTheme.cyanAccent),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Text(
-              'Color differences (ΔL*, Δa*, Δb*) against reference white were mapped using natural cubic spline over the bundled calibration anchors to estimate pH. Strip identity and accuracy are not independently validated.',
-              style: TextStyle(
+              'Color differences (ΔL*, Δa*, Δb*) against the selected reference were mapped using a natural cubic spline over ${widget.calibrationName} anchors to estimate pH. Strip identity and accuracy are not independently validated.',
+              style: const TextStyle(
                 color: Colors.white70,
                 fontSize: 12,
                 height: 1.3,

@@ -58,7 +58,7 @@ class GuideScreen extends StatelessWidget {
                       iconColor: const Color(0xFF16A34A),
                       icon: Icons.grid_view_rounded,
                       description:
-                          'Use the dye paper according to its instructions. Keep it in even light without glare or deep shadows. A white background is not required for live scanning.',
+                          'Use the dye paper according to its instructions. Keep it in even light without glare or deep shadows. A white background is not required for live capture.',
                     ),
                     const SizedBox(height: 12),
                     _buildStepCard(
@@ -68,7 +68,7 @@ class GuideScreen extends StatelessWidget {
                       iconColor: const Color(0xFF2563EB),
                       icon: Icons.camera_alt_rounded,
                       description:
-                          'Point the Live Camera at one dye patch and hold steady. The app captures and opens the pH estimate automatically when it finds a suitable patch.',
+                          'Point the Live Camera at one dye patch and tap Capture when the image is clear.',
                     ),
                     const SizedBox(height: 12),
                     _buildStepCard(
@@ -78,7 +78,7 @@ class GuideScreen extends StatelessWidget {
                       iconColor: const Color(0xFF9333EA),
                       icon: Icons.crop_free_rounded,
                       description:
-                          'The live scan selects the dye patch automatically. For a gallery or manual photo, select the dye region yourself; reference paper is optional.',
+                          'After capturing or choosing a photo, select the dye region yourself; reference paper is optional.',
                     ),
                     const SizedBox(height: 12),
                     _buildStepCard(
