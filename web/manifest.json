@@ -1,6 +1,6 @@
 {
-    "name": "ph_analyzer",
-    "short_name": "ph_analyzer",
+    "name": "pH_analyzer",
+    "short_name": "pH_analyzer",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

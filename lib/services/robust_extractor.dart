@@ -1,72 +1,59 @@
+import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 
 class RobustColorExtractor {
-  /// Extracts the robust mean RGB color of [patch] by filtering out intensity
-  /// outliers outside the 5th and 95th percentiles of grayscale intensity.
-  /// Returns [R, G, B] as integers in [0..255].
+  /// Luminance-histogram trimmed mean with bounded memory, discarding 5% at
+  /// either end. Partial boundary bins are weighted evenly (no scan-order bias).
   static List<int> extract(img.Image patch) {
-    if (patch.width <= 0 || patch.height <= 0) {
-      return [0, 0, 0];
+    if (patch.isEmpty) {
+      throw ArgumentError('Cannot extract color from an empty patch.');
     }
-
-    final int totalPixels = patch.width * patch.height;
-    final List<double> grays = [];
-    final List<_PixelData> allPixels = [];
-
-    for (final p in patch) {
-      final num r = p.r;
-      final num g = p.g;
-      final num b = p.b;
-      final double gray = 0.299 * r + 0.587 * g + 0.114 * b;
-      grays.add(gray);
-      allPixels.add(_PixelData(r.toDouble(), g.toDouble(), b.toDouble(), gray));
+    const bins = 4096;
+    final counts = Uint32List(bins);
+    final reds = Float64List(bins);
+    final greens = Float64List(bins);
+    final blues = Float64List(bins);
+    for (final pixel in patch) {
+      final r = pixel.r.toDouble();
+      final g = pixel.g.toDouble();
+      final b = pixel.b.toDouble();
+      final index = ((0.299 * r + 0.587 * g + 0.114 * b) * 16).floor().clamp(
+        0,
+        bins - 1,
+      );
+      counts[index]++;
+      reds[index] += r;
+      greens[index] += g;
+      blues[index] += b;
     }
-
-    grays.sort();
-    final double p5 = grays[(totalPixels * 0.05).floor().clamp(0, totalPixels - 1)];
-    final double p95 = grays[(totalPixels * 0.95).floor().clamp(0, totalPixels - 1)];
-
-    double sumR = 0;
-    double sumG = 0;
-    double sumB = 0;
-    int count = 0;
-
-    // Filter pixels within [p5, p95]
-    for (final pd in allPixels) {
-      if (pd.gray >= p5 && pd.gray <= p95) {
-        sumR += pd.r;
-        sumG += pd.g;
-        sumB += pd.b;
-        count++;
+    final total = patch.width * patch.height;
+    final start = (total * .05).floor();
+    final end = math.max(start + 1, (total * .95).floor());
+    var position = 0;
+    var kept = 0;
+    double red = 0, green = 0, blue = 0;
+    for (var i = 0; i < bins; i++) {
+      final count = counts[i];
+      if (count == 0) continue;
+      final overlap = math.max(
+        0,
+        math.min(position + count, end) - math.max(position, start),
+      );
+      if (overlap > 0) {
+        final weight = overlap / count;
+        red += reds[i] * weight;
+        green += greens[i] * weight;
+        blue += blues[i] * weight;
+        kept += overlap.toInt();
       }
+      position += count;
+      if (position >= end) break;
     }
-
-    // Fallback to simple mean of the whole patch if mask contains no pixels or p5 == p95
-    if (count == 0) {
-      sumR = 0;
-      sumG = 0;
-      sumB = 0;
-      for (final pd in allPixels) {
-        sumR += pd.r;
-        sumG += pd.g;
-        sumB += pd.b;
-      }
-      count = totalPixels;
-    }
-
     return [
-      (sumR / count).round().clamp(0, 255),
-      (sumG / count).round().clamp(0, 255),
-      (sumB / count).round().clamp(0, 255),
+      (red / kept).round().clamp(0, 255),
+      (green / kept).round().clamp(0, 255),
+      (blue / kept).round().clamp(0, 255),
     ];
   }
-}
-
-class _PixelData {
-  final double r;
-  final double g;
-  final double b;
-  final double gray;
-
-  _PixelData(this.r, this.g, this.b, this.gray);
 }
