@@ -29,7 +29,7 @@ class _ROISelectorState extends State<ROISelector> {
   String? _error;
   bool _loading = true;
   bool _busy = false;
-  bool _useReference = true;
+  bool _useReference = false;
   bool _selectReference = false;
   Rect? _dye;
   Rect? _reference;
@@ -209,7 +209,7 @@ class _ROISelectorState extends State<ROISelector> {
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Text(
-                    'Select the dye pad on this photo, then clean reference paper. The highlighted pixels will be analyzed on this device.',
+                    'Select the dye pad on this photo. Reference paper is optional. The highlighted pixels will be analyzed on this device.',
                   ),
                 ),
                 Padding(

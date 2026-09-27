@@ -8,6 +8,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'roi_selector.dart';
 import '../services/diagnostics.dart';
+import '../services/automatic_dye_detector.dart';
+import '../services/image_preparation.dart';
+import 'result_screen.dart';
 
 class LiveCameraScreen extends StatefulWidget {
   final Future<List<CameraDescription>> Function() cameraProvider;
@@ -26,6 +29,9 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
   bool _selecting = false;
   bool _demo = false;
   bool _active = true;
+  bool _scanning = false;
+  Timer? _scanTimer;
+  String _scanStatus = 'Point the camera at one dye patch';
   String? _error;
   double _zoom = 1;
   double _minZoom = 1;
@@ -49,6 +55,8 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
   }
 
   Future<void> _release() async {
+    _scanTimer?.cancel();
+    _scanTimer = null;
     final camera = _camera;
     _camera = null;
     if (camera != null) await _disposeCamera(camera);
@@ -151,6 +159,11 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
           _exposure = 0.0.clamp(minExposure, maxExposure);
           _flash = FlashMode.off;
         });
+        _scanTimer?.cancel();
+        _scanTimer = Timer.periodic(
+          const Duration(seconds: 2),
+          (_) => unawaited(_scanForDye()),
+        );
       } on CameraException catch (e) {
         if (mounted && generation == _generation) {
           setState(() {
@@ -212,6 +225,93 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
     }
   }
 
+  Future<void> _scanForDye() async {
+    final camera = _camera;
+    if (_scanning ||
+        _capturing ||
+        _selecting ||
+        _demo ||
+        !_active ||
+        camera == null ||
+        !camera.value.isInitialized) {
+      return;
+    }
+    _scanning = true;
+    final generation = _generation;
+    String? photoPath;
+    String? normalizedPath;
+    var openedResult = false;
+    try {
+      final capturedAt = DateTime.now();
+      final photo = await camera.takePicture();
+      photoPath = photo.path;
+      if (!mounted || generation != _generation || !_active) return;
+      final directory = await getTemporaryDirectory();
+      final prepared = await compute(prepareImage, {
+        'path': photoPath,
+        'tempDirPath': directory.path,
+      });
+      normalizedPath = prepared['path'] as String;
+      final calibration = await rootBundle.loadString(
+        'assets/calibration.json',
+      );
+      final bounds = await compute(detectDyePaper, {
+        'path': normalizedPath,
+        'calibration': calibration,
+      });
+      if (!mounted || generation != _generation || !_active) return;
+      if (bounds == null) {
+        setState(
+          () => _scanStatus = 'No dye paper detected — point at one dye patch',
+        );
+        return;
+      }
+      setState(() => _scanStatus = 'Dye patch detected');
+      _selecting = true;
+      _generation++;
+      _scanTimer?.cancel();
+      await _enqueue(_release);
+      if (!mounted) return;
+      openedResult = true;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ResultScreen(
+            imagePath: normalizedPath!,
+            dyeRect: Rect.fromLTRB(bounds[0], bounds[1], bounds[2], bounds[3]),
+            source: 'camera',
+            capturedAt: capturedAt,
+          ),
+        ),
+      );
+    } catch (error) {
+      Diagnostics.record('automatic_capture', error);
+      if (mounted && generation == _generation) {
+        setState(() => _scanStatus = 'Hold steady and point at one dye patch');
+      }
+    } finally {
+      if (photoPath != null) {
+        try {
+          await File(photoPath).delete();
+        } on FileSystemException {
+          /* temp cleanup */
+        }
+      }
+      if (normalizedPath != null) {
+        try {
+          await File(normalizedPath).delete();
+        } on FileSystemException {
+          /* temp cleanup */
+        }
+      }
+      _selecting = false;
+      _scanning = false;
+      if (openedResult && mounted && _active && !_demo) {
+        setState(() => _scanStatus = 'Point the camera at one dye patch');
+      }
+      if (mounted && _active && !_demo && _camera == null) await _initialize();
+    }
+  }
+
   Future<void> _showRegions(
     String path,
     String source,
@@ -260,6 +360,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
 
   Future<void> _capture() async {
     if (_capturing ||
+        _scanning ||
         (!_demo &&
             (_camera == null || !_camera!.value.isInitialized || !_active))) {
       return;
@@ -352,7 +453,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
     final ready = camera != null && camera.value.isInitialized && _active;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Capture strip'),
+        title: const Text('Scan dye paper'),
         actions: [
           IconButton(
             key: const Key('gallery_button'),
@@ -480,10 +581,12 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
                   ],
                 ),
             ],
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Text(
-                'Keep the strip and reference paper in even light. After capture, confirm the exact regions on the photo.',
+                _demo
+                    ? 'Demo image: select a dye region to continue.'
+                    : _scanStatus,
               ),
             ),
             Padding(
@@ -492,14 +595,16 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
                 width: double.infinity,
                 child: FilledButton.icon(
                   key: const Key('capture_button'),
-                  onPressed: !_capturing && (_demo || ready) ? _capture : null,
+                  onPressed: !_capturing && !_scanning && (_demo || ready)
+                      ? _capture
+                      : null,
                   icon: const Icon(Icons.camera_alt),
                   label: Text(
                     _capturing
                         ? 'Preparing photo…'
                         : _demo
                         ? 'Use labeled demo'
-                        : 'Capture and select regions',
+                        : 'Capture manually',
                   ),
                 ),
               ),

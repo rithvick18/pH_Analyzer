@@ -55,8 +55,8 @@ void main() {
         await tester.tap(
           find.byTooltip('Place or reset active region at center'),
         );
-        await tester.tap(find.text('Measure reference paper'));
         await tester.pump();
+        expect(find.textContaining('fixed reference color'), findsOneWidget);
         await tester.ensureVisible(
           find.text('Analyze as an unvalidated estimate'),
         );

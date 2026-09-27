@@ -53,12 +53,12 @@ class GuideScreen extends StatelessWidget {
                     const SizedBox(height: 14),
                     _buildStepCard(
                       stepNumber: '01',
-                      title: 'Prepare Reference Paper & Dye Strip',
+                      title: 'Prepare the Dye Paper',
                       badgeColor: const Color(0xFFDCFCE7),
                       iconColor: const Color(0xFF16A34A),
                       icon: Icons.grid_view_rounded,
                       description:
-                          'Place your wet pH dye strip directly onto the clean white reference background paper. Ensure ambient lighting is uniform and free from harsh glares or heavy shadows.',
+                          'Use the dye paper according to its instructions. Keep it in even light without glare or deep shadows. A white background is not required for live scanning.',
                     ),
                     const SizedBox(height: 12),
                     _buildStepCard(
@@ -68,17 +68,17 @@ class GuideScreen extends StatelessWidget {
                       iconColor: const Color(0xFF2563EB),
                       icon: Icons.camera_alt_rounded,
                       description:
-                          'Hold your device flat directly above the test strip. Use the Live Camera or select a photo from your gallery. Ensure both the dye pad and surrounding white reference paper are visible.',
+                          'Point the Live Camera at one dye patch and hold steady. The app captures and opens the pH estimate automatically when it finds a suitable patch.',
                     ),
                     const SizedBox(height: 12),
                     _buildStepCard(
                       stepNumber: '03',
-                      title: 'Select Regions of Interest (ROI)',
+                      title: 'Review the Estimate',
                       badgeColor: const Color(0xFFF3E8FF),
                       iconColor: const Color(0xFF9333EA),
                       icon: Icons.crop_free_rounded,
                       description:
-                          'Draw a Red bounding box around the active dye pad and a Blue bounding box around the white reference paper. Outlier pixels like specular highlights are automatically filtered out.',
+                          'The live scan selects the dye patch automatically. For a gallery or manual photo, select the dye region yourself; reference paper is optional.',
                     ),
                     const SizedBox(height: 12),
                     _buildStepCard(
@@ -88,7 +88,7 @@ class GuideScreen extends StatelessWidget {
                       iconColor: const Color(0xFFEA580C),
                       icon: Icons.memory_rounded,
                       description:
-                          'Zero server latency! The app converts RGB to CIELAB color space, applies illuminant white balance compensation, and evaluates natural cubic spline curves to calculate fractional pH (0.00 – 14.00).',
+                          'The app compares the dye color with bundled calibration colors on your device. The displayed pH is an unvalidated estimate and depends on lighting.',
                     ),
                     const SizedBox(height: 28),
                     const Text(
@@ -314,7 +314,7 @@ class GuideScreen extends StatelessWidget {
           _buildTipRow(
             isDo: true,
             text:
-                'Place reference paper on a flat, non-reflective surface under steady light.',
+                'Keep one dye patch clearly visible and in steady, even light.',
           ),
           const Divider(height: 20, color: Color(0xFFF1F5F9)),
           _buildTipRow(
@@ -326,7 +326,7 @@ class GuideScreen extends StatelessWidget {
           _buildTipRow(
             isDo: false,
             text:
-                'Do not allow dye chemical bleeding to touch the white reference box.',
+                'Avoid glare, motion blur, and multiple patches filling the view.',
           ),
         ],
       ),
