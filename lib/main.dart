@@ -3,6 +3,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'models/prediction_record.dart';
 import 'screens/home_screen.dart';
+import 'screens/first_run_screen.dart';
 import 'widgets/loading_screen.dart';
 import 'services/history_service.dart';
 import 'services/ph_analyzer.dart';
@@ -30,7 +31,8 @@ void main() async {
 }
 
 class PHAnalyzerApp extends StatelessWidget {
-  const PHAnalyzerApp({super.key});
+  final bool setupComplete;
+  const PHAnalyzerApp({super.key, required this.setupComplete});
 
   @override
   Widget build(BuildContext context) {
@@ -54,7 +56,7 @@ class PHAnalyzerApp extends StatelessWidget {
         appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
       ),
       themeMode: ThemeMode.system,
-      home: const HomeScreen(),
+      home: setupComplete ? const HomeScreen() : const FirstRunScreen(),
     );
   }
 }
@@ -68,6 +70,7 @@ class AppInitializer extends StatefulWidget {
 
 class _AppInitializerState extends State<AppInitializer> {
   bool _initialized = false;
+  bool _setupComplete = false;
   String? _errorMessage;
 
   @override
@@ -87,6 +90,11 @@ class _AppInitializerState extends State<AppInitializer> {
       }
       await HistoryService.getBox();
       await PHAnalyzer().trainFromAssets();
+      final setupBox = await Hive.openBox<bool>(FirstRunScreen.boxName);
+      _setupComplete = setupBox.get(
+        FirstRunScreen.completeKey,
+        defaultValue: false,
+      )!;
       try {
         await HistoryService.cleanupOrphans();
         final tempDir = await getTemporaryDirectory();
@@ -148,6 +156,6 @@ class _AppInitializerState extends State<AppInitializer> {
       );
     }
 
-    return const PHAnalyzerApp();
+    return PHAnalyzerApp(setupComplete: _setupComplete);
   }
 }

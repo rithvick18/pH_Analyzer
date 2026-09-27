@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 
 void validateRgb(List<int> rgb, String name) {
   if (rgb.length != 3 || rgb.any((v) => v < 0 || v > 255)) {
@@ -68,10 +69,7 @@ class CalibrationData {
     this.id = 'custom',
     this.version = 1,
     this.maxColorDistance = 15,
-  }) : anchors = List.unmodifiable(
-         List<CalibrationAnchor>.from(anchors)
-           ..sort((a, b) => a.ph.compareTo(b.ph)),
-       ) {
+  }) : anchors = List.unmodifiable(anchors) {
     if (this.anchors.length < 2) {
       throw const FormatException(
         'At least two calibration anchors are required.',
@@ -84,11 +82,18 @@ class CalibrationData {
       throw const FormatException('Invalid calibration metadata.');
     }
     for (var i = 1; i < this.anchors.length; i++) {
-      if (this.anchors[i].ph == this.anchors[i - 1].ph) {
-        throw const FormatException('Calibration pH anchors must be unique.');
+      if (this.anchors[i].ph <= this.anchors[i - 1].ph) {
+        throw const FormatException(
+          'Calibration pH anchors must be distinct and sorted.',
+        );
       }
     }
   }
+
+  double get lowerPh => anchors.first.ph;
+  double get upperPh => anchors.last.ph;
+  String get hash =>
+      sha256.convert(utf8.encode(jsonEncode(toJson()))).toString();
 
   factory CalibrationData.fromJson(Map<String, dynamic> json) {
     if (json['anchors'] is! List || (json['schema_version'] ?? 1) != 1) {
@@ -130,4 +135,5 @@ class CalibrationData {
     'max_color_distance': maxColorDistance,
     'anchors': anchors.map((e) => e.toJson()).toList(),
   };
+  String toJsonString() => jsonEncode(toJson());
 }

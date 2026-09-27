@@ -195,6 +195,13 @@ class ExportService {
           if (measurement != null) ...[
             line('Validation status', measurement.validationStatus),
             line('Calibration', measurement.calibrationId),
+            if (measurement.calibrationProfileId != null)
+              line('Profile ID', measurement.calibrationProfileId!),
+            if (measurement.calibrationVersion != null)
+              line(
+                'Profile version',
+                measurement.calibrationVersion.toString(),
+              ),
             line('Calibration SHA-256', measurement.calibrationHash),
             line('Algorithm', measurement.algorithmVersion),
             line('Dye RGB', measurement.dyeRgb.join(', ')),

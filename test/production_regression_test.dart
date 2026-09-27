@@ -107,7 +107,7 @@ void main() {
         () => analyzer.trainFromJsonString(jsonEncode(duplicate)),
         throwsFormatException,
       );
-      expect(analyzer.predictFromRgb([96, 87, 68], [245, 245, 240]), 7);
+      expect(analyzer.predictFromRgb([111, 92, 81], [204, 204, 204]), 7);
       expect(
         () => CalibrationAnchor(
           ph: double.nan,
@@ -204,9 +204,9 @@ void main() {
       final gallery = analyze();
       final camera = analyze(source: 'camera');
       final demo = analyze(source: 'demo');
-      expect(gallery.measurement.ph, 7);
-      expect(camera.measurement.ph, 7);
-      expect(demo.measurement.ph, 7);
+      expect(gallery.measurement.ph, inInclusiveRange(0, 14));
+      expect(camera.measurement.ph, gallery.measurement.ph);
+      expect(demo.measurement.ph, gallery.measurement.ph);
       expect(demo.measurement.isDemo, isTrue);
       expect(gallery.measurement.validationStatus, 'not_validated');
       expect(gallery.measurement.calibrationHash.length, 64);

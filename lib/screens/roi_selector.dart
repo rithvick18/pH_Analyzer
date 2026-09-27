@@ -6,17 +6,25 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import '../services/image_geometry.dart';
 import '../services/image_preparation.dart';
+import '../services/calibration_profile_service.dart';
+import '../services/ph_analyzer.dart';
+import '../services/robust_extractor.dart';
+import '../services/gemini_validator_service.dart';
+import '../models/calibration_data.dart';
+import '../models/calibration_profile.dart';
 import 'result_screen.dart';
 
 class ROISelector extends StatefulWidget {
   final String imagePath;
   final String source;
   final DateTime? capturedAt;
+  final bool calibrationPoint;
   const ROISelector({
     super.key,
     required this.imagePath,
     this.source = 'gallery',
     this.capturedAt,
+    this.calibrationPoint = false,
   });
   @override
   State<ROISelector> createState() => _ROISelectorState();
@@ -29,16 +37,66 @@ class _ROISelectorState extends State<ROISelector> {
   String? _error;
   bool _loading = true;
   bool _busy = false;
+  bool? _geminiEnabled;
+  String? _modeError;
   bool _useReference = false;
   bool _selectReference = false;
   Rect? _dye;
   Rect? _reference;
   Offset? _start;
+  List<CalibrationProfile> _profiles = [];
+  String _selectedId = CalibrationProfileService.bundledId;
+  String? _profileError;
+  bool _profilesLoading = true;
 
   @override
   void initState() {
     super.initState();
     _load();
+    if (widget.source != 'demo') _loadValidationMode();
+    if (!widget.calibrationPoint) _loadProfiles();
+  }
+
+  Future<void> _loadValidationMode() async {
+    try {
+      final key = await GeminiValidatorService.readKey();
+      if (mounted) {
+        setState(() => _geminiEnabled = key != null && key.isNotEmpty);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _modeError =
+              'Cannot read validation settings. Retry after reopening this photo.',
+        );
+      }
+    }
+  }
+
+  Future<void> _loadProfiles() async {
+    try {
+      final profiles = await CalibrationProfileService.getAll();
+      final selected = await CalibrationProfileService.activeId();
+      if (mounted) {
+        setState(() {
+          _profiles = profiles;
+          _selectedId = selected;
+          _profilesLoading = false;
+          if (selected != CalibrationProfileService.bundledId &&
+              !profiles.any((p) => p.id == selected)) {
+            _profileError =
+                'Selected calibration is missing. Choose a profile before analyzing.';
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _profileError = e.toString();
+          _profilesLoading = false;
+        });
+      }
+    }
   }
 
   Future<void> _load() async {
@@ -143,6 +201,82 @@ class _ROISelectorState extends State<ROISelector> {
       return;
     }
     setState(() => _busy = true);
+    PadValidation? validation;
+    var manualMode = false;
+    try {
+      // The bundled demo is a labeled fixture, never a sample measurement.
+      if (widget.source != 'demo') {
+        if (_modeError != null) throw PadValidationException(_modeError!);
+        final key = await GeminiValidatorService.readKey();
+        manualMode = key == null || key.isEmpty;
+        if (!manualMode) {
+          validation = await GeminiValidatorService.validate(
+            imagePath: _normalizedPath!,
+            dyeRect: _dye!,
+          );
+        }
+      }
+      if (validation != null && !validation.accepted) {
+        throw PadValidationException(
+          validation.status == 'invalid'
+              ? 'This does not appear to be a pH dye pad. ${validation.reason}'
+              : 'Dye pad could not be confirmed. Retake the photo. ${validation.reason}',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _busy = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e is PadValidationException
+                  ? e.message
+                  : 'Gemini validation failed. Check the connection and retry.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    if (widget.calibrationPoint) {
+      try {
+        final image = PHAnalyzer.loadAndNormalizeImage(_normalizedPath!);
+        final dye = RobustColorExtractor.extract(
+          ImageGeometry.crop(image, _dye!),
+        );
+        final reference = _useReference
+            ? RobustColorExtractor.extract(
+                ImageGeometry.crop(image, _reference!),
+              )
+            : const [245, 245, 240];
+        if (mounted) Navigator.of(context).pop((dye, reference));
+      } catch (e) {
+        if (mounted) {
+          setState(() => _busy = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Color extraction failed: $e')),
+          );
+        }
+      }
+      return;
+    }
+    if (_profileError != null || _profilesLoading) {
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_profileError ?? 'Calibration is still loading.'),
+        ),
+      );
+      return;
+    }
+    CalibrationData? calibration;
+    String calibrationName = 'Bundled experimental';
+    if (_selectedId != CalibrationProfileService.bundledId) {
+      final profile = _profiles.firstWhere((p) => p.id == _selectedId);
+      calibration = profile.calibration;
+      calibrationName = profile.name;
+    }
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ResultScreen(
@@ -151,6 +285,10 @@ class _ROISelectorState extends State<ROISelector> {
           bgRect: _useReference ? _reference : null,
           source: widget.source,
           capturedAt: widget.capturedAt,
+          calibration: calibration,
+          calibrationName: calibrationName,
+          validationReason: validation?.reason,
+          manualMode: manualMode,
         ),
       ),
     );
@@ -186,7 +324,9 @@ class _ROISelectorState extends State<ROISelector> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.source == 'demo'
+          widget.calibrationPoint
+              ? 'Capture calibration color'
+              : widget.source == 'demo'
               ? 'DEMO — Confirm regions'
               : 'Confirm photo regions',
         ),
@@ -206,10 +346,21 @@ class _ROISelectorState extends State<ROISelector> {
           builder: (context, viewport) => SingleChildScrollView(
             child: Column(
               children: [
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: Text(
-                    'Select the dye pad on this photo. Reference paper is optional. The highlighted pixels will be analyzed on this device.',
+                    widget.source == 'demo'
+                        ? 'Select the dye pad on this demo photo. Reference paper is optional.'
+                        : _modeError != null
+                        ? _modeError!
+                        : _geminiEnabled == null
+                        ? 'Loading image validation settings…'
+                        : _geminiEnabled!
+                        ? 'Select the dye pad. Gemini will check this photo before local pH analysis.'
+                        : 'Manual mode: select the dye pad for local color analysis. No AI check will confirm that this is a dye pad.',
                   ),
                 ),
                 Padding(
@@ -353,6 +504,70 @@ class _ROISelectorState extends State<ROISelector> {
                     if (!v) _selectReference = false;
                   }),
                 ),
+                if (!widget.calibrationPoint && _profilesLoading)
+                  const LinearProgressIndicator(),
+                if (!widget.calibrationPoint)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Column(
+                      children: [
+                        if (_profileError != null)
+                          Text(
+                            _profileError!,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                        DropdownButtonFormField<String>(
+                          key: ValueKey('analysis_calibration_$_selectedId'),
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Dye calibration for this analysis',
+                          ),
+                          initialValue:
+                              _selectedId ==
+                                      CalibrationProfileService.bundledId ||
+                                  _profiles.any((p) => p.id == _selectedId)
+                              ? _selectedId
+                              : CalibrationProfileService.bundledId,
+                          items: [
+                            const DropdownMenuItem(
+                              value: CalibrationProfileService.bundledId,
+                              child: Text(
+                                'Bundled experimental',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            ..._profiles.map(
+                              (p) => DropdownMenuItem(
+                                value: p.id,
+                                child: Text(
+                                  p.name,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                          ],
+                          onChanged: (id) async {
+                            if (id == null) return;
+                            try {
+                              await CalibrationProfileService.select(id);
+                              if (mounted) {
+                                setState(() {
+                                  _selectedId = id;
+                                  _profileError = null;
+                                });
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                setState(() => _profileError = e.toString());
+                              }
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
                 Padding(
                   padding: const EdgeInsets.all(12),
                   child: SizedBox(
@@ -360,12 +575,24 @@ class _ROISelectorState extends State<ROISelector> {
                     child: FilledButton.icon(
                       onPressed:
                           !_busy &&
+                              (widget.source == 'demo' ||
+                                  (_geminiEnabled != null &&
+                                      _modeError == null)) &&
+                              (widget.calibrationPoint ||
+                                  (!_profilesLoading &&
+                                      _profileError == null)) &&
                               _dye != null &&
                               (!_useReference || _reference != null)
                           ? _submit
                           : null,
                       icon: const Icon(Icons.analytics_outlined),
-                      label: const Text('Analyze as an unvalidated estimate'),
+                      label: Text(
+                        widget.calibrationPoint
+                            ? 'Use selected colors'
+                            : _geminiEnabled == false && widget.source != 'demo'
+                            ? 'Analyze in manual mode'
+                            : 'Analyze as an unvalidated estimate',
+                      ),
                     ),
                   ),
                 ),

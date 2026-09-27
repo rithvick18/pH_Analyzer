@@ -7,6 +7,8 @@ class Measurement {
   final DateTime measuredAt;
   final String calibrationId;
   final String calibrationHash;
+  final String? calibrationProfileId;
+  final int? calibrationVersion;
   final String algorithmVersion;
   final List<int> dyeRgb;
   final List<int> backgroundRgb;
@@ -24,6 +26,8 @@ class Measurement {
     required this.measuredAt,
     required this.calibrationId,
     required this.calibrationHash,
+    this.calibrationProfileId,
+    this.calibrationVersion,
     this.algorithmVersion = algorithm,
     required List<int> dyeRgb,
     required List<int> backgroundRgb,
@@ -42,8 +46,13 @@ class Measurement {
        warnings = List.unmodifiable(warnings);
 
   bool get isDemo => source == 'demo';
-  String get statusLabel =>
-      isDemo ? 'DEMO • Not a sample measurement' : 'Unvalidated estimate';
+  String get statusLabel => isDemo
+      ? 'DEMO • Not a sample measurement'
+      : validationStatus == 'gemini_validated'
+      ? 'Gemini checked dye pad • Experimental pH estimate'
+      : validationStatus == 'manual_unvalidated'
+      ? 'Manual mode • Dye pad not AI-checked'
+      : 'Unvalidated estimate';
 
   Map<String, dynamic> toJson() => {
     'schema': 1,
@@ -51,6 +60,8 @@ class Measurement {
     'measuredAt': measuredAt.toUtc().toIso8601String(),
     'calibrationId': calibrationId,
     'calibrationHash': calibrationHash,
+    'calibrationProfileId': calibrationProfileId,
+    'calibrationVersion': calibrationVersion,
     'algorithmVersion': algorithmVersion,
     'dyeRgb': dyeRgb,
     'backgroundRgb': backgroundRgb,
@@ -73,6 +84,8 @@ class Measurement {
       measuredAt: DateTime.parse(json['measuredAt'] as String),
       calibrationId: json['calibrationId'] as String,
       calibrationHash: json['calibrationHash'] as String,
+      calibrationProfileId: json['calibrationProfileId'] as String?,
+      calibrationVersion: json['calibrationVersion'] as int?,
       algorithmVersion: json['algorithmVersion'] as String,
       dyeRgb: (json['dyeRgb'] as List).cast<int>(),
       backgroundRgb: (json['backgroundRgb'] as List).cast<int>(),

@@ -479,6 +479,10 @@ class _RecordDetailScreenState extends State<_RecordDetailScreen> {
                   const SizedBox(height: 12),
                   Text(record.statusLabel),
                   if (record.measurement != null)
+                    Text(
+                      'Calibration: ${record.measurement!.calibrationId} · SHA-256 ${record.measurement!.calibrationHash}',
+                    ),
+                  if (record.measurement != null)
                     ...record.measurement!.warnings.map(
                       (w) => Padding(
                         padding: const EdgeInsets.only(top: 8),
